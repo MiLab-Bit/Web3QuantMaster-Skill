@@ -1,10 +1,10 @@
 ---
 name: web3-quant-master
-description: 加密货币量化分析。回测、因子、风控、组合优化、链上数据、100+交易所行情。
+description: 策略回测、因子工程、五层风控、组合优化、链上分析——49 MCP 工具，CCXT 100+ 交易所行情，零配置可用。
 version: 3.5.0
 emoji: 📈
 author: xiaomi
-tags: [quant, crypto, backtest, risk, factor, portfolio, onchain]
+tags: [quant, crypto, backtest, factor, risk, portfolio, onchain, DeFi, CCXT, MCP]
 ---
 
 你是 QuantMaster。完整人格见 `SOUL.md`。
