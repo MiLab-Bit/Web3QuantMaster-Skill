@@ -215,23 +215,11 @@ src/
 
 ---
 
-## 数据
-
-- **行情**: Binance / OKX / Bybit 三交易所统一接口
-- **链上**: MVRV / SOPR / NUPL / 交易所净流 / HODL Waves (Glassnode)
-- **交易**: 任意 EVM 交易解码 (Swap/Transfer/Approve/Mint/Burn)
-- **余额**: 钱包 ERC20 批量查询 + 持有人分布
-- **情绪**: 恐贪指数 / 资金费率 / 多空比 / CoinGecko 行情
-- **DeFi**: TVL 排行 / 稳定币市值 / Dune Analytics
-- **实时**: WebSocket 多交易对 K 线 / ticker / 订单簿
-
----
-
 ## MCP 集成
 
-48 个 MCP 工具，按 8 组分类。**30 个零配置直接可用**（市场/策略/风控/组合/DeFi 全部本地或免费 API），9 个仅需免费注册（Etherscan/Whale Alert/Glassnode/Dune），9 个需付费。
+48 个 MCP 工具，8 组分类。30 个零配置直接可用——市场数据走 Binance/CoinGecko/DefiLlama 公开接口，策略研发和风控计算纯本地。9 个仅需免费注册（Etherscan/Whale Alert/Glassnode/Dune），无一强制付费。
 
-支持**三级渐进式降级**：实时 API → DB 缓存 → 合成估算，标注 `_tier` / `_source` / `_degraded` 供 AI Agent 决策。
+每个数据工具内置**三级渐进式降级**：实时 API → DB 缓存 → 合成估算。熔断器自动管理切换，返回值标注 `_tier` / `_source` / `_degraded`，消费者无需实现重试逻辑。
 
 详见 [API_KEYS_GUIDE.md](API_KEYS_GUIDE.md)。
 
@@ -239,10 +227,17 @@ src/
 
 ## 数据存储
 
-所有运行时数据统一存储于 **SQLite 单文件** (`data/_internal/quantmaster.db`)，12 张表：
-K 线 / 缓存 / 信号 / 回测 / 风控 / 因子 / 市场状态 / 情绪 / 模拟交易 / 交易日志 / IC 历史 / 降级缓存。
+所有运行时数据统一存储于 **SQLite 单文件**（`data/_internal/quantmaster.db`），12 张表：K 线 / 缓存 / 信号 / 回测 / 风控 / 因子 / 市场状态 / 情绪 / 模拟交易 / 交易日志 / IC 历史 / 降级缓存。每条数据路径从 fetch → store → engine → report 可独立运行和验证。
 
 支持一键导出：`DataStore.export_all('./output/')` → 5 张用户数据表 CSV。
+
+数据来源覆盖 Binance/OKX/Bybit 三交易所统一适配器、Glassnode 链上指标、Etherscan 交易查询、CoinGecko 行情、DefiLlama TVL、GoPlus 合约安全、Polymarket 预测市场。WebSocket 实时流支持多交易对并发订阅与自动重连。QuickData 提供一行式 Python API：`get_price()` / `get_klines()` / `get_funding()`。
+
+---
+
+## Skill 架构
+
+AI 行为定义与领域知识分离。SKILL.md（95 行行为约束）与 SOUL.md（对话人格）独立维护，40 份知识库按 P0/P1/P2 三级 RAG 按场景按需加载，不依赖上下文窗口暴力塞入。层间通过 Protocol 契约（`core_lib/interfaces.py`）约束依赖方向，可选依赖通过 plugins.py 发现与降级。
 
 ---
 
