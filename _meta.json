@@ -1,0 +1,472 @@
+{
+  "name": "web3-quant-master",
+  "version": "3.5.0",
+  "description": "Web3 Quant Trading Assistant - strategy diagnosis, factor analysis, risk management, data fetching, backtesting, paper trading, price alerts, portfolio analysis",
+  "author": "xiaomi",
+  "tags": [
+    "quant",
+    "trading",
+    "trading-bot",
+    "backtest"
+  ],
+  "features": [
+    {
+      "name": "策略诊断",
+      "description": "分析交易策略的可行性，给出可行性评估和优化建议",
+      "trigger": [
+        "策略诊断",
+        "帮我看看这个策略",
+        "策略能赚钱吗",
+        "strategy check",
+        "analyze strategy"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "因子分析",
+      "description": "分析因子相关性，计算VIF，优化因子组合",
+      "trigger": [
+        "因子分析",
+        "这几个因子能不能一起用",
+        "因子冗余",
+        "factor analysis",
+        "correlation"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "风控检测",
+      "description": "检查持仓风险，计算极端情况下的账户影响，提供改进建议",
+      "trigger": [
+        "风控检测",
+        "看看有没有风险",
+        "持仓检查",
+        "risk check",
+        "portfolio risk"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "技术选型",
+      "description": "根据需求推荐合适的回测框架、交易机器人、数据源",
+      "trigger": [
+        "用什么框架",
+        "哪个机器人好用",
+        "技术选型",
+        "tech stack",
+        "framework recommendation"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "数据获取",
+      "description": "从交易所API获取实时/历史K线数据，支持多交易所",
+      "trigger": [
+        "获取数据",
+        "拉一下数据",
+        "fetch data",
+        "行情数据",
+        "K线数据"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "策略回测",
+      "description": "基于历史数据回测策略的收益率、最大回撤、夏普比率",
+      "trigger": [
+        "回测一下",
+        "历史表现怎么样",
+        "backtest",
+        "历史回测"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "模拟交易",
+      "description": "基于实盘行情进行虚拟持仓，记录交易信号和盈亏变化",
+      "trigger": [
+        "paper trade",
+        "模拟交易",
+        "虚拟持仓",
+        "模拟账户"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "价格预警",
+      "description": "设置价格阈值提醒，当行情触发条件时通知",
+      "trigger": [
+        "价格预警",
+        "设置提醒",
+        "alert",
+        "price alert",
+        "监控价格"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "组合分析",
+      "description": "分析投资组合的资产配置、相关性风险和再平衡建议",
+      "trigger": [
+        "组合分析",
+        "资产配置",
+        "portfolio",
+        "rebalance",
+        "持仓分析"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "数据看板",
+      "description": "实时多交易对行情+技术指标信号评分+持仓风险仪表盘+Excel导出",
+      "trigger": [
+        "数据看板",
+        "dashboard",
+        "行情看板",
+        "指标评分",
+        "持仓仪表盘"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "叙事追踪",
+      "description": "多源叙事追踪执行层（Reddit/CryptoPanic/CoinGecko/Google Trends），热度评分0-100，Memecoin/RWA/DePIN等20+预设叙事",
+      "trigger": [
+        "叙事追踪",
+        "热点追踪",
+        "narrative",
+        "市场叙事",
+        "memecoin热度"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "链上数据",
+      "description": "获取Glassnode链上指标（MVRV、SOPR、交易所资金流），Dune Analytics查询",
+      "trigger": [
+        "链上数据",
+        "Glassnode",
+        "onchain",
+        "链上指标",
+        "交易所资金流"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "CoinGecko行情",
+      "description": "全品类加密货币行情、DeFi协议数据、链上市场数据（免费，无需API Key）",
+      "trigger": [
+        "CoinGecko",
+        "行情查询",
+        "coingecko",
+        "加密货币价格",
+        "DeFi数据"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "Polymarket预测市场",
+      "description": "预测市场事件概率/赔率/交易数据，量化预期类策略独有数据源",
+      "trigger": [
+        "Polymarket",
+        "预测市场",
+        "polymarket",
+        "事件概率",
+        "赔率数据"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "Etherscan V2 Gas",
+      "description": "以太坊Gas价格、区块数据、交易查询、代币余额查询",
+      "trigger": [
+        "Etherscan",
+        "Gas价格",
+        "etherscan",
+        "以太坊Gas",
+        "区块数据"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "链上风险预警",
+      "description": "MVRV/SOPR/NUPL/交易所净流自动预警（Glassnode），顶部底部信号识别",
+      "trigger": [
+        "MVRV",
+        "SOPR",
+        "NUPL",
+        "链上预警",
+        "链上风险",
+        "onchain alert"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "市场情绪监控",
+      "description": "恐惧贪婪指数、资金费率（Bybit）、多空比清算热力图（Binance），实时市场情绪量化",
+      "trigger": [
+        "恐贪指数",
+        "资金费率",
+        "多空比",
+        "fear greed",
+        "funding rate",
+        "liquidation"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "DeFi TVL监控",
+      "description": "DeFiLlama TVL排行榜（无需Key）、稳定币总市值监控，市场流动性信号",
+      "trigger": [
+        "DeFi TVL",
+        "DeFi数据",
+        "稳定币市值",
+        "defi tvl",
+        "stablecoin market cap"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "智能合约安全",
+      "description": "Token授权Approval扫描（Goplus）、Rug Pull风险检测（蜂蜜罐/高税率/可增发检测）",
+      "trigger": [
+        "合约安全",
+        "授权扫描",
+        "Rug Pull",
+        "合约审计",
+        "approval scan",
+        "rug check"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "Whale监控",
+      "description": "大额链上转账监控（Whale Alert），>100万美元自动捕获，机构动向信号",
+      "trigger": [
+        "Whale",
+        "大额转账",
+        "巨鲸",
+        "whale alert",
+        "large transfer"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "跨协议传染风险",
+      "description": "CeFi/DeFi关联度扫描、稳定币脱锚风险、协议集中度分析，黑天鹅预警",
+      "trigger": [
+        "传染风险",
+        "跨协议风险",
+        "协议风险",
+        "contagion",
+        "protocol risk"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "贝叶斯参数优化",
+      "description": "Optuna TPE采样，MA Cross/RSI/Bollinger策略参数优化，效率比网格搜索快10-100倍",
+      "trigger": [
+        "参数优化",
+        "贝叶斯优化",
+        "Optuna",
+        "bayesian optimize",
+        "参数调优"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "DCC-GARCH动态相关性",
+      "description": "Engle两阶段DCC-GARCH实时估计多资产动态相关系数，极端行情预警（相关性-1），组合VaR压力测试",
+      "trigger": [
+        "DCC-GARCH",
+        "动态相关性",
+        "相关性预警",
+        "dcc garch",
+        "correlation alert",
+        "VaR压力测试"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "因子挖掘（遗传规划）",
+      "description": "DEAP遗传规划自动搜索有效因子，输出IC/IR统计，无需预设因子形式，可发现非线性关系",
+      "trigger": [
+        "因子挖掘",
+        "遗传规划",
+        "GP因子",
+        "factor mining",
+        "genetic programming"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "MEV监控",
+      "description": "Flashbots隐私交易+Tenderly模拟+三明治攻击风险评估，保护交易免受MEV抢跑",
+      "trigger": [
+        "MEV",
+        "Flashbots",
+        "三明治攻击",
+        "Tenderly",
+        "mev protect",
+        "frontrun"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "HMM市场状态识别",
+      "description": "隐马尔可夫模型概率识别市场状态（强势上涨/震荡/弱势下跌），输出状态转移矩阵和策略建议",
+      "trigger": [
+        "HMM",
+        "市场状态",
+        "regime detection",
+        "隐马尔可夫",
+        "牛市熊市"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "Delta 中性对冲引擎",
+      "description": "Black-Scholes Greeks计算（Delta/Gamma/Vega/Theta）、阈值/TWAP双模式对冲、Iron Condor/Short Straddle分析、IV Rank买卖信号",
+      "trigger": [
+        "Delta对冲",
+        "期权对冲",
+        "Delta中性",
+        "iron condor",
+        "delta hedge",
+        "Greeks",
+        "IV Rank"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "机器学习特征工程",
+      "description": "12种衍生特征构建（技术/波动率/跨资产）、IC过滤+共线性剔除、时间序列训练/测试划分（防数据泄露）、特征重要性分析",
+      "trigger": [
+        "机器学习",
+        "特征工程",
+        "ML特征",
+        "特征选择",
+        "data leakage",
+        "IC过滤",
+        "ml feature"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "数据质量检查框架",
+      "description": "6维数据检查（完整性/准确性/波动率稳定性/成交量/时间戳/充足性），综合评分0-100，JSON报告导出",
+      "trigger": [
+        "数据质量",
+        "数据检查",
+        "data quality",
+        "data validation",
+        "数据清洗"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "叙事追踪执行层",
+      "description": "多源叙事聚合（Reddit/CryptoPanic/CoinGecko/Google Trends），热度评分0-100，叙事-价格相关性，Memecoin/RWA/DePIN等20+预设叙事",
+      "trigger": [
+        "叙事追踪",
+        "热点追踪",
+        "Twitter监控",
+        "narrative",
+        "市场叙事",
+        "memecoin热度",
+        "RWA热度"
+      ],
+      "status": "beta"
+    },
+    {
+      "name": "实时风控仪表盘",
+      "description": "GARCH波动率预测+VaR/CVaR量化+极端场景压力测试+组合风险聚合，GREEN/YELLOW/ORANGE/RED/BLACK五级预警，持续监控",
+      "trigger": [
+        "风控仪表盘",
+        "实时风控",
+        "GARCH预警",
+        "VaR压力测试",
+        "风险监控",
+        "risk dashboard"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "实盘安全",
+      "description": "OrderValidator订单预审(仓位/集中度/滑点/杠杆五检)+EmergencyStop紧急停止(总亏损/日亏损/连续亏损三监)",
+      "trigger": [
+        "订单预审",
+        "紧急停止",
+        "trade safety",
+        "order validator",
+        "emergency stop"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "交易解码",
+      "description": "EVM交易解码(Swap/Transfer/Approve/Mint/Burn), 27方法签名, Etherscan+公共RPC双模式",
+      "trigger": [
+        "交易解码",
+        "tx decode",
+        "transaction decoder",
+        "etherscan"
+      ],
+      "status": "stable"
+    },
+    {
+      "name": "余额索引",
+      "description": "钱包ERC20余额批量查询(12常用代币), 持有人分析, 本地缓存",
+      "trigger": [
+        "余额查询",
+        "钱包余额",
+        "token balance",
+        "balance indexer"
+      ],
+      "status": "stable"
+    }
+  ],
+  "commands": [
+    "/strategy-check",
+    "/factor-analyze",
+    "/risk-check",
+    "/tech-stack",
+    "/backtest",
+    "/data-fetch",
+    "/paper-trade",
+    "/alert",
+    "/dashboard",
+    "/portfolio",
+    "/narrative",
+    "/onchain",
+    "/strategy-dev"
+  ],
+  "docs": [
+    "references/因子指南.md",
+    "references/风控体系.md",
+    "references/回测能力.md",
+    "references/震荡策略.md",
+    "references/事件驱动分析.md",
+    "references/策略模板库.md",
+    "references/赛道分类与投资框架.md",
+    "references/交易所指南.md",
+    "references/快速入门.md",
+    "references/术语表.md",
+    "references/宏观数据.md"
+  ],
+  "output": "纯文本对话输出，不生成文件",
+  "created": "2026-05-03",
+  "updated": "2026-05-31",
+  "homepage": "https://github.com/MiLab-Bit/QuantMaster",
+  "license": "MIT",
+  "language": [
+    "zh-CN",
+    "en"
+  ],
+  "plugin_system": "core_lib.plugins",
+  "mcp_tools": 48,
+  "mcp_groups": 8,
+  "mcp_no_api": 37,
+  "mcp_need_api": 11
+}

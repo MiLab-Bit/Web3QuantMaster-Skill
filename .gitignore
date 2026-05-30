@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Data runtime artifacts
+*.db
+data/_internal/
+
+# JSON except meta/manifest
+*.json
+!_meta.json
+!refs/manifest.json
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Env
+.env
+.venv/
+
+# Test artifacts
+htmlcov/
+.coverage
+.coverage.*
+.pytest_cache/
