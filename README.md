@@ -143,7 +143,7 @@ Token 解锁:     解锁日历 + 冲击分析
 ### 数据层
 
 ```
-三交易所统一适配器(Binance/OKX/Bybit, Adapter模式)
+三交易所统一适配器 + CCXT 100+交易所(Binance/OKX/Bybit, Adapter模式, 自动降级)
 QuickData 一行 API: get_price() / get_klines() / get_funding()
 6 维数据质检 / 本地 SQLite 缓存 / DataFetchError(分类异常)
 WebSocket 实时流: 多交易对并发 + 自动重连 + 指数退避
@@ -191,7 +191,7 @@ src/
   ├── strategies/       ← 9 个内置策略（即插即用）
   │
   ├── data/             ← 数据抽象
-  │   ├── exchange_adapter.py  三交易所统一接口
+  │   ├── exchange_adapter.py  交易所统一接口 + CCXT 100+ 适配
   │   ├── onchain/             交易解码/余额索引/MEV监控
   │   ├── websocket_stream.py  实时数据流
   │   └── quality.py           6 维数据质检
@@ -231,7 +231,7 @@ src/
 
 支持一键导出：`DataStore.export_all('./output/')` → 5 张用户数据表 CSV。
 
-数据来源覆盖 Binance/OKX/Bybit 三交易所统一适配器、Glassnode 链上指标、Etherscan 交易查询、CoinGecko 行情、DefiLlama TVL、GoPlus 合约安全、Polymarket 预测市场。WebSocket 实时流支持多交易对并发订阅与自动重连。QuickData 提供一行式 Python API：`get_price()` / `get_klines()` / `get_funding()`。
+数据来源覆盖 CCXT（100+ 交易所）及 Binance/OKX/Bybit 三所统一适配器、Glassnode 链上指标、Etherscan 交易查询、CoinGecko 行情、DefiLlama TVL、GoPlus 合约安全、Polymarket 预测市场。WebSocket 实时流支持多交易对并发订阅与自动重连。QuickData 提供一行式 Python API：`get_price()` / `get_klines()` / `get_funding()`。
 
 ---
 

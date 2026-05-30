@@ -465,7 +465,7 @@
     "en"
   ],
   "plugin_system": "core_lib.plugins",
-  "mcp_tools": 48,
+  "mcp_tools": 49,
   "mcp_groups": 8,
   "mcp_no_api": 37,
   "mcp_need_api": 11

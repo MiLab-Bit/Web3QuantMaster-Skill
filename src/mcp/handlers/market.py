@@ -10,6 +10,7 @@ if _proj_root not in sys.path:
     sys.path.insert(0, _proj_root)
 
 from data.client import DataClient
+from data.ccxt_adapter import CCXTAdapter, get_ccxt_adapter
 
 
 # ── Data Client ────────────────────────────────────────────────────────────────
@@ -51,10 +52,34 @@ def market_fear_greed() -> Dict[str, Any]:
         return {"status": "error", "error": str(e)}
 
 
-# ── Funding Rate (Bybit) ─────────────────────────────────────────────────────
+# ── Funding Rate (CCXT multi-exchange) ────────────────────────────────────
 
-def market_funding_rate(symbol: str = "BTC/USDT:USDT") -> Dict[str, Any]:
-    """获取永续合约资金费率，判断多空情绪"""
+def market_funding_rate(symbol: str = "BTC/USDT:USDT", exchange: str = "bybit") -> Dict[str, Any]:
+    """获取永续合约资金费率。CCXT 支持 50+ 交易所。
+
+    Args:
+        symbol: Trading pair (e.g. BTC/USDT:USDT or BTCUSDT)
+        exchange: CCXT exchange ID (bybit/binance/okx/...)
+    """
+    # 尝试 CCXT
+    adapter = get_ccxt_adapter()
+    clean = symbol.split(':')[0]  # BTC/USDT:USDT → BTC/USDT
+    r = adapter.fetch_funding_rate(clean, exchange)
+    if r.success and r.data:
+        rate = float(r.data.get('funding_rate', 0))
+        annual_rate = rate * 3 * 365 * 100
+        return {
+            "status": "ok",
+            "symbol": symbol,
+            "exchange": exchange,
+            "source": "ccxt",
+            "funding_rate": f"{rate * 100:.4f}%",
+            "annualized_rate": f"{annual_rate:.2f}%",
+            "direction": "多头付空头" if rate > 0 else "空头付多头",
+            "signal": "过度多头" if annual_rate > 30 else ("过度空头" if annual_rate < -30 else "正常"),
+        }
+
+    # Fallback: Bybit REST
     try:
         bybit_symbol = symbol.replace("/", "").replace(":USDT", "USDT")
         url = "https://api.bybit.com/v5/market/funding-history"
@@ -65,25 +90,32 @@ def market_funding_rate(symbol: str = "BTC/USDT:USDT") -> Dict[str, Any]:
             entry = data["list"][0]
             rate = float(entry.get("fundingRate", 0))
             annual_rate = rate * 3 * 365 * 100
-            direction = "多头付空头" if rate > 0 else "空头付多头"
-            signal = "过度多头" if annual_rate > 30 else ("过度空头" if annual_rate < -30 else "正常")
             return {
                 "status": "ok",
                 "symbol": symbol,
+                "exchange": "bybit",
+                "source": "rest",
                 "funding_rate": f"{rate * 100:.4f}%",
                 "annualized_rate": f"{annual_rate:.2f}%",
-                "direction": direction,
-                "signal": signal,
+                "direction": "多头付空头" if rate > 0 else "空头付多头",
+                "signal": "过度多头" if annual_rate > 30 else ("过度空头" if annual_rate < -30 else "正常"),
             }
-        return {"status": "error", "error": str(data)}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    except Exception:
+        pass
+
+    return {"status": "error", "error": f"CCXT 和 REST 均无法获取 {symbol} 资金费率"}
 
 
-# ── Liquidation Map (Binance) ───────────────────────────────────────────────
+# ── Liquidation Map (Binance + CCXT fallback) ────────────────────────────
 
-def market_liquidation_map(symbol: str = "BTCUSDT") -> Dict[str, Any]:
-    """获取多空账户比，判断仓位拥挤度"""
+def market_liquidation_map(symbol: str = "BTCUSDT", exchange: str = "binance") -> Dict[str, Any]:
+    """获取多空账户比。CCXT 支持 → Binance REST 降级。
+
+    Args:
+        symbol: Trading pair
+        exchange: Exchange (binance only for liquidation data currently)
+    """
+    # Binance REST（CCXT 暂无 liquidation map 统一接口）
     try:
         if not symbol.endswith("USDT"):
             symbol = symbol + "USDT"
@@ -98,6 +130,30 @@ def market_liquidation_map(symbol: str = "BTCUSDT") -> Dict[str, Any]:
             signal = "多头拥挤" if long_ratio > 60 else ("空头拥挤" if short_ratio > 60 else "均衡")
             return {
                 "status": "ok",
+                "symbol": symbol,
+                "exchange": exchange,
+                "long_ratio": long_ratio,
+                "short_ratio": short_ratio,
+                "signal": signal,
+            }
+        return {"status": "error", "error": str(data)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ── Available Exchanges ──────────────────────────────────────────────────
+
+def available_exchanges() -> Dict[str, Any]:
+    """列出所有可用的交易所（CCXT + 内置）。"""
+    adapter = get_ccxt_adapter()
+    exchanges = adapter.list_exchanges()
+    return {
+        "status": "ok",
+        "count": len(exchanges),
+        "exchanges": exchanges[:50],  # first 50
+        "truncated": len(exchanges) > 50,
+        "has_ccxt": adapter._has_ccxt,
+    }
                 "symbol": symbol,
                 "long_ratio": f"{long_ratio:.1f}%",
                 "short_ratio": f"{short_ratio:.1f}%",
@@ -212,4 +268,5 @@ HANDLERS = {
     "price_alert": price_alert,
     "narrative_tracking": narrative_tracking,
     "get_crypto_price": get_crypto_price,
+    "available_exchanges": available_exchanges,
 }

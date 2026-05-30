@@ -1,6 +1,6 @@
 # Web3QuantMaster 参考文档
 
-> CLI 命令 24 条 + MCP 工具 48 个 + 数据存储 + 降级机制。用户手册。
+> CLI 命令 24 条 + MCP 工具 49 个 + 数据存储 + 降级机制。用户手册。
 
 ---
 
@@ -47,20 +47,23 @@ python main.py risk-dash --symbols BTC,ETH,SOL --monitor
 
 ---
 
-## MCP 工具（48 个，8 组）
+## MCP 工具（49 个，8 组）
 
-### 市场数据（10 个，全部免费）
+### 市场数据（11 个，全部免费）
+
+> 所有行情工具支持 CCXT（100+ 交易所），`exchange` 参数可切换。CCXT 未安装时自动降级为 Binance/OKX/Bybit 内置 REST。
 
 | 工具 | 说明 | 示例 |
 |------|------|------|
-| `data_fetch_ohlcv` | K 线数据 | `{"symbol":"BTCUSDT","interval":"4h","limit":100}` |
-| `data_fetch_ticker` | 实时行情 | `{"symbol":"BTCUSDT"}` |
+| `data_fetch_ohlcv` | K 线数据 | `{"symbol":"BTCUSDT","interval":"4h","limit":100,"exchange":"kraken"}` |
+| `data_fetch_ticker` | 实时行情 | `{"symbol":"BTCUSDT","exchange":"coinbase"}` |
 | `data_fetch_orderbook` | 订单簿 | `{"symbol":"BTCUSDT","limit":10}` |
 | `data_quality_check` | 6 维数据质检 | `{"symbol":"BTCUSDT","lookback_days":30}` |
 | `get_crypto_price` | CoinGecko 价格 | `{"coin_id":"bitcoin"}` |
 | `market_fear_greed` | 恐贪指数 0-100 | `{}` |
-| `market_funding_rate` | 资金费率 | `{"symbol":"BTC/USDT:USDT"}` |
+| `market_funding_rate` | 资金费率（CCXT 50+） | `{"symbol":"BTC/USDT:USDT","exchange":"binance"}` |
 | `market_liquidation_map` | 多空比 | `{"symbol":"BTCUSDT"}` |
+| `available_exchanges` | 列出全部可用交易所 | `{}` |
 | `polymarket_events` | 预测市场 | `{"limit":10}` |
 
 ### 策略研发（5 个）

@@ -91,5 +91,5 @@ RAG 分级：P0(场景默认, 6份) → P1(关键词触发, 20份) → P2(按需
 ## 工具层（详见 refs/）
 
 - **CLI**: `/strategy-check` `/factor-analyze` `/risk-check` `/backtest` `/data-fetch` 等 24 命令 → `REFERENCE.md`
-- **MCP**: 48 工具(31免API) → `REFERENCE.md`; 三级降级(live→cache→estimated) → `API_KEYS_GUIDE.md`; 启动: `python main.py mcp-server`
+- **MCP**: 49 工具(31免API) → `REFERENCE.md`; 三级降级(live→cache→estimated) → `API_KEYS_GUIDE.md`; 启动: `python main.py mcp-server`
 - **共享模块**: `core_lib/interfaces.py`(层间契约) `core_lib/plugins.py`(依赖管理) `core_lib/indicators.py`(18指标) `data/store.py` `data/fetcher.py` `data/client.py`(数据层)

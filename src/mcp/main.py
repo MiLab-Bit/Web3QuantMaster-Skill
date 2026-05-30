@@ -429,6 +429,12 @@ TOOL_REGISTRY = [
         },
         lambda **kw: _call_handler("market_liquidation_map", **kw),
     ),
+    (
+        "available_exchanges",
+        "List all supported exchanges (100+ via CCXT)",
+        {"type": "object", "properties": {}},
+        lambda **kw: _call_handler("available_exchanges", **kw),
+    ),
     # -- Alert tools ----------------------------------------------------------
     (
         "price_alert",
@@ -749,6 +755,7 @@ TOOL_GROUPS: Dict[str, str] = {
     "data_fetch_orderbook": "市场数据", "data_quality_check": "市场数据",
     "get_crypto_price": "市场数据", "market_fear_greed": "市场数据",
     "market_funding_rate": "市场数据", "market_liquidation_map": "市场数据",
+    "available_exchanges": "市场数据",
     "polymarket_events": "市场数据",
     "strategy_diagnosis": "策略研发", "run_backtest": "策略研发",
     "list_strategies": "策略研发", "factor_analysis": "策略研发",

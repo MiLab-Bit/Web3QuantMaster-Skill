@@ -11,54 +11,66 @@ import json
 from data.fetcher import fetch_ohlcv, fetch_ticker, fetch_orderbook
 from data.quality import DataQualityChecker, QualityIssue
 from data.store import DataStore
+from data.ccxt_adapter import fetch_ohlcv_with_fallback, fetch_ticker_with_fallback, CCXTAdapter
+
+
+def _resolve_exchange(exchange: str) -> str:
+    """解析交易所 ID。CCXT 优先 → 内置交易所列表。"""
+    adapter = CCXTAdapter()
+    exchanges = adapter.list_exchanges()
+    if exchange in exchanges:
+        return exchange
+    # 兼容别名
+    aliases = {'binanceus': 'binanceusdm', 'coinbase': 'coinbasepro'}
+    return aliases.get(exchange, exchange)
 
 
 def data_fetch_ohlcv(symbol: str = "BTCUSDT", interval: str = "4h",
                     limit: int = 100, exchange: str = "binance") -> Dict[str, Any]:
-    """Fetch OHLCV kline data
-    
+    """Fetch OHLCV kline data — CCXT (100+ exchanges) with REST fallback.
+
     Args:
-        symbol: Trading pair
+        symbol: Trading pair (e.g. BTCUSDT, BTC/USDT)
         interval: Timeframe (1m/5m/15m/1h/4h/1d)
-        limit: Number of candles
-        exchange: Exchange name
-    
+        limit: Number of candles (max 1000)
+        exchange: CCXT exchange ID (binance/okx/bybit/kraken/coinbase/...)
+
     Returns:
-        Dict with candles data
+        Dict with candles + source metadata
     """
+    ex = _resolve_exchange(exchange)
     try:
-        candles = fetch_ohlcv(symbol=symbol, interval=interval, limit=limit, source=exchange)
+        candles, source = fetch_ohlcv_with_fallback(symbol, interval, limit, ex)
         return {
             "status": "ok",
             "symbol": symbol,
             "interval": interval,
-            "exchange": exchange,
+            "exchange": ex,
+            "source": source,
             "count": len(candles),
-            "candles": candles[:10],  # Return first 10 for preview
+            "candles": candles[:10],
             "truncated": len(candles) > 10,
-            "message": f"Fetched {len(candles)} candles. Showing first 10."
         }
     except Exception as e:
         return {"error": f"Failed to fetch data: {str(e)}"}
 
 
 def data_fetch_ticker(symbol: str = "BTCUSDT", exchange: str = "binance") -> Dict[str, Any]:
-    """Fetch current ticker
-    
+    """Fetch current ticker — CCXT preferred.
+
     Args:
         symbol: Trading pair
-        exchange: Exchange name
-    
-    Returns:
-        Dict with ticker data
+        exchange: CCXT exchange ID
     """
+    ex = _resolve_exchange(exchange)
     try:
-        ticker = fetch_ticker(symbol=symbol, source=exchange)
+        ticker, source = fetch_ticker_with_fallback(symbol, ex)
         return {
             "status": "ok",
             "symbol": symbol,
-            "exchange": exchange,
-            "ticker": ticker
+            "exchange": ex,
+            "source": source,
+            "ticker": ticker,
         }
     except Exception as e:
         return {"error": f"Failed to fetch ticker: {str(e)}"}
