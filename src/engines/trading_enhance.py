@@ -152,9 +152,14 @@ def johansen_hedge_ratio(
         from statsmodels.tsa.vector_ar.vecm import coint_johansen
         data = np.column_stack([np.array(pa[-200:]), np.array(pb[-200:])])
         result = coint_johansen(data, det_order=0, k_ar_diff=1)
-        # Eigenvector of the first cointegrating relation
+        # Eigenvector of the first cointegrating relation β = [β0, β1] for
+        # [pa, pb]. The stationary combo is β0*pa + β1*pb, i.e.
+        # pa = (-β1/β0)*pb at equilibrium — which is exactly the hedge ratio
+        # the OLS fallback (pa = β0 + β1*pb → hedge ratio β1) and
+        # pair_backtest (spread = a - hedge_ratio*b) use. So the ratio is
+        # -β1/β0 = -vec[1]/vec[0], NOT the reciprocal -vec[0]/vec[1].
         vec = result.evec[:, 0]
-        ratio = -vec[0] / vec[1] if abs(vec[1]) > 1e-12 else 1.0
+        ratio = -vec[1] / vec[0] if abs(vec[0]) > 1e-12 else 1.0
         return float(ratio), True
     except ImportError:
         # Fallback to OLS
