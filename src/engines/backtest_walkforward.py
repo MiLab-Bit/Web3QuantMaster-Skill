@@ -75,6 +75,24 @@ class WalkForwardReport:
         }
 
 
+def _oos_max_drawdown(oos_returns: List[float]) -> float:
+    """True max drawdown of the compounded OOS equity curve.
+
+    The out-of-sample windows are compounded in order to form an equity
+    curve; the max drawdown is the largest peak-to-trough decline of that
+    curve (a negative fraction). This replaces the old ``min(oos_returns)``
+    which only reported the single worst window return and systematically
+    understated tail risk.
+    """
+    if not oos_returns:
+        return 0.0
+    equity = np.cumprod([1.0 + r for r in oos_returns])
+    if equity.size == 0:
+        return 0.0
+    peak = np.maximum.accumulate(equity)
+    return float(np.min((equity - peak) / peak))
+
+
 class WalkforwardEngine:
     """Walk-forward backtest engine."""
 
@@ -195,7 +213,7 @@ class WalkforwardEngine:
             valid_windows=len(valid_windows),
             oos_total_return=oos_total_return,
             oos_sharpe=oos_sharpe,
-            oos_max_drawdown=min(oos_returns) if oos_returns else 0.0,
+            oos_max_drawdown=_oos_max_drawdown(oos_returns),
             oos_win_rate=oos_win_rate,
             robustness_score=robustness,
             windows=windows,
