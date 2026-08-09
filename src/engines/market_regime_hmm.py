@@ -520,7 +520,7 @@ def main():
         from data.store import DataStore
         DataStore().save_regime_state(
             symbol=args.symbol.upper(),
-            regime=analysis.current_regime.regime_name,
+            regime=analysis.current_regime.regime.value,
             confidence=analysis.current_regime.probability,
             interval=args.interval,
             transition_from=analysis.current_regime.transition_from if hasattr(analysis.current_regime, 'transition_from') else '',
@@ -531,7 +531,7 @@ def main():
 
     from core_lib.output import result as _out
     _out({
-        'symbol': args.symbol, 'regime': analysis.current_regime.regime_name,
+        'symbol': args.symbol, 'regime': analysis.current_regime.regime.value,
         'confidence': analysis.current_regime.probability,
         'stability': analysis.regime_stability,
         'suggested_strategy': analysis.suggested_strategy,

@@ -39,7 +39,7 @@ class MarketIntelligence:
             if isinstance(data, dict) and "error" in data:
                 return data
             values = data.get("data", [])
-            current = data[0] if data else {}
+            current = data.get("data", [{}])[0] if data.get("data") else {}
             return {
                 "value": int(current.get("value", 0)),
                 "classification": current.get("value_classification", "N/A"),
@@ -128,6 +128,7 @@ class MarketIntelligence:
         """Compute a composite market risk score (0-100, higher = more risky)."""
 
         signals = []
+        score = 0
 
         fng = self.get_fear_greed_index()
         if "error" not in fng:

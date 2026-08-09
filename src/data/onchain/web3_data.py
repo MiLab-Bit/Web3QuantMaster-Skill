@@ -157,6 +157,9 @@ def _get_twitter_client():
             timeout=15,
         )
     return _TWITTER_CLIENT
+
+
+def run_dune_query(query_id: str, api_key: str = None):
     """
     执行 Dune Analytics 查询（异步触发 + 轮询结果）
 
@@ -180,7 +183,6 @@ def _get_twitter_client():
     }
 
     try:
-        trigger_url = f'{DUNE_BASE}/query/{query_id}/execute'
         client = _get_dune_client()
         trigger_result = client.post(
             f'/query/{query_id}/execute',
@@ -188,12 +190,11 @@ def _get_twitter_client():
             headers=headers,
             timeout=30
         )
-    except Exception as e:
-        print(f'[ERROR] Dune HTTP 错误 {e.code}: {e.read().decode()}')
-        return None
+        return trigger_result
     except Exception as e:
         print(f'[ERROR] Dune API 错误: {e}')
         return None
+
 
 def _get_dune_result(execution_id, api_key, max_wait=60):
     """轮询获取 Dune 查询结果
@@ -270,7 +271,7 @@ def search_tweets(query, max_results=100, bearer_token=None):
         'expansions': 'author_id',
         'user.fields': 'public_metrics',
     }
-    url = f'{TWITTER_BASE}/tweets/search/recent?{query_string}'
+    # 实际请求由下方 client.get(params=params) 发起；query_string 未定义，移除该行
     
     headers = {
         'Authorization': f'Bearer {bearer_token}',

@@ -70,6 +70,19 @@ def _get_glassnode_client():
     return _GLASSNODE_CLIENT
 
 _GLASSNODE_CLIENT = None
+
+
+def _get_cryptoquant_client():
+    """获取 CryptoQuant DataClient 单例"""
+    global _CRYPTOQUANT_CLIENT
+    if _CRYPTOQUANT_CLIENT is None:
+        _CRYPTOQUANT_CLIENT = DataClient(
+            base_url=CRYPTOQUANT_BASE_URL,
+            timeout=30,
+        )
+    return _CRYPTOQUANT_CLIENT
+
+_CRYPTOQUANT_CLIENT = None
 def timestamp_to_datetime(timestamp: int) -> datetime:
     """将时间戳转换为 datetime"""
     return datetime.fromtimestamp(timestamp)
@@ -345,9 +358,8 @@ def get_whale_transactions(symbol: str, min_value: float = 1000000, limit: int =
     try:
 
     
-        client = _get_glassnode_client()
-
-    
+        client = _get_cryptoquant_client()
+        endpoint = "/tx/large_transactions"
         data = client.get(endpoint, params=params, timeout=30)
         
         result = []

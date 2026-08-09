@@ -40,7 +40,6 @@ class FundingScanResult:
     exchanges_scanned: int = 0
     symbols_scanned: int = 0
 
-    @property
     def top(self, n: int = 5) -> List[FundingOpportunity]:
         return sorted(self.opportunities, key=lambda x: abs(x.annualized_apy), reverse=True)[:n]
 
