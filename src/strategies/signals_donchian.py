@@ -40,16 +40,21 @@ def signals_donchian(
     closes = [c['close'] for c in candles]
     volumes = [c.get('volume', 0) for c in candles]
 
-    # Compute Donchian channel
+    # Compute Donchian channel.
+    # IMPORTANT: the channel must be built from the *prior* `donchian_period`
+    # bars (i - donchian_period .. i - 1), EXCLUDING the current bar `i`.
+    # Using the window that includes the current high/low made the breakout
+    # condition `close > upper` mathematically impossible (close <= high[i]
+    # <= max(highs incl. current) => upper), so the strategy never fired.
     upper = []
     lower = []
     for i in range(len(candles)):
-        if i < donchian_period - 1:
+        if i < donchian_period:
             upper.append(None)
             lower.append(None)
         else:
-            upper.append(max(highs[i - donchian_period + 1:i + 1]))
-            lower.append(min(lows[i - donchian_period + 1:i + 1]))
+            upper.append(max(highs[i - donchian_period:i]))
+            lower.append(min(lows[i - donchian_period:i]))
 
     # ADX for trend confirmation
     adx_result = calc_adx(highs, lows, closes, 14)

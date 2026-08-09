@@ -30,6 +30,7 @@ class Signal:
 
     source: str
     reason: str
+    confidence: float = 1.0
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass
@@ -273,16 +274,23 @@ class AISignalEngine:
 
     def generate_signal(self, timeframe: Timeframe, sentiment_data: Dict,
                         onchain_data: Dict, defi_data: Dict,
-                        technical_data: Dict, macro_data: Dict) -> CompositeSignal:
+                        technical_data: Dict, macro_data: Dict,
+                        current_price: Optional[float] = None) -> CompositeSignal:
         """
         Generate a composite trading signal.
-        
+
         All data dicts should contain required fields:
         - sentiment: fear_greed, btc_dominance, market_cap_change
         - onchain: btc_tvl, stablecoin_mcap, tvl_change_7d
         - defi: top_yields_avg, protocol_count_change
         - technical: price_change_24h, price_vs_ma50, volume_change_24h
         - macro: total_mcap_change_24h, btc_dominance_change_7d, stablecoin_flow_direction
+
+        Args:
+            current_price: actual mark price of the asset. When provided, the
+                generated entry/stop/take-profit levels are computed relative to
+                this price (correct behaviour). When omitted, levels fall back to
+                a synthetic 100.0 base for backward compatibility.
         """
         weights = self.weights[timeframe]
         factors: List[Signal] = []
@@ -294,7 +302,7 @@ class AISignalEngine:
             sentiment_data.get("btc_dominance", 50),
             sentiment_data.get("market_cap_change", 0)
         )
-        factors.append(Signal(s_signal, s_conf, "sentiment", s_reason))
+        factors.append(Signal(type=s_signal, source="sentiment", reason=s_reason, confidence=s_conf))
         weighted_score += self._signal_score(s_signal) * weights["sentiment"]
         total_weight += weights["sentiment"]
 
@@ -303,7 +311,7 @@ class AISignalEngine:
             technical_data.get("price_vs_ma50", 1.0),
             technical_data.get("volume_change_24h", 0)
         )
-        factors.append(Signal(t_signal, t_conf, "technical", t_reason))
+        factors.append(Signal(type=t_signal, source="technical", reason=t_reason, confidence=t_conf))
         weighted_score += self._signal_score(t_signal) * weights["technical"]
         total_weight += weights["technical"]
 
@@ -312,7 +320,7 @@ class AISignalEngine:
             onchain_data.get("stablecoin_mcap", 0),
             onchain_data.get("tvl_change_7d", 0)
         )
-        factors.append(Signal(o_signal, o_conf, "onchain", o_reason))
+        factors.append(Signal(type=o_signal, source="onchain", reason=o_reason, confidence=o_conf))
         weighted_score += self._signal_score(o_signal) * weights["onchain"]
         total_weight += weights["onchain"]
 
@@ -320,7 +328,7 @@ class AISignalEngine:
             defi_data.get("top_yields_avg", 10),
             defi_data.get("protocol_count_change", 0)
         )
-        factors.append(Signal(d_signal, d_conf, "defi", d_reason))
+        factors.append(Signal(type=d_signal, source="defi", reason=d_reason, confidence=d_conf))
         weighted_score += self._signal_score(d_signal) * weights["defi"]
         total_weight += weights["defi"]
 
@@ -329,7 +337,7 @@ class AISignalEngine:
             macro_data.get("btc_dominance_change_7d", 0),
             macro_data.get("stablecoin_flow_direction", "neutral")
         )
-        factors.append(Signal(m_signal, m_conf, "macro", m_reason))
+        factors.append(Signal(type=m_signal, source="macro", reason=m_reason, confidence=m_conf))
         weighted_score += self._signal_score(m_signal) * weights["macro"]
         total_weight += weights["macro"]
 
@@ -338,7 +346,7 @@ class AISignalEngine:
         avg_confidence = sum(f.confidence for f in factors) / len(factors)
 
         entry_zones, stop_loss, take_profits = self._generate_levels(
-            overall_signal, timeframe, normalized_score
+            overall_signal, timeframe, normalized_score, current_price
         )
 
         return CompositeSignal(
@@ -375,8 +383,16 @@ class AISignalEngine:
         return mapping.get(signal, 0.0)
 
     def _generate_levels(self, signal: SignalType, timeframe: Timeframe,
-                         score: float) -> Tuple[List[float], float, List[float]]:
-        """Generate entry zones, stop loss, and take profit levels."""
+                         score: float,
+                         current_price: Optional[float] = None
+                         ) -> Tuple[List[float], float, List[float]]:
+        """Generate entry zones, stop loss, and take profit levels.
+
+        Levels are computed as ATR-based offsets from the real mark price.
+        The previous implementation hard-coded a `100.0` base for every asset,
+        so the levels ignored the actual price and were meaningless for any
+        asset not trading near 100.0.
+        """
         if timeframe == Timeframe.SCALP:
             atr_pct = 1.5
             targets = [3.0, 5.0, 8.0]
@@ -387,9 +403,20 @@ class AISignalEngine:
             atr_pct = 10.0
             targets = [15.0, 30.0, 50.0]
 
-        entry_zones = [100.0 - atr_pct, 100.0 - atr_pct * 0.5, 100.0]
-        stop_loss = 100.0 - atr_pct * 2
-        take_profits = [100.0 + (t * abs(score) / 100) * 100 for t in targets]
+        # Use the real price; fall back to a synthetic 100.0 base only when no
+        # price is supplied (keeps the demo / legacy callers working).
+        base = current_price if current_price and current_price > 0 else 100.0
+
+        entry_zones = [
+            base * (1 - atr_pct / 100.0),
+            base * (1 - atr_pct / 200.0),
+            base,
+        ]
+        stop_loss = base * (1 - 2 * atr_pct / 100.0)
+        # Targets are percentages; `score` in [-1, 1] scales conviction
+        # (the old `abs(score)/100*100` was a no-op that always equalled
+        # abs(score)).
+        take_profits = [base * (1 + t * abs(score) / 100.0) for t in targets]
 
         return entry_zones, stop_loss, take_profits
 

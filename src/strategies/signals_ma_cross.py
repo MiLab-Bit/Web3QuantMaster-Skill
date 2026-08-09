@@ -9,16 +9,27 @@ try:
 except ImportError:
     _HAS_TQDM = False
 
-from core_lib.indicators import calc_sma
-from core_lib.config import ADX_FILTER_THRESHOLD
+from core_lib.indicators import calc_sma, calc_adx
 from core_lib.strategy_base import register_strategy
 
 
 def signals_ma_cross(candles, fast=5, slow=20, adx_filter=None, adx_data=None):
     """均线交叉信号"""
     prices = [c['close'] for c in candles]
+    highs = [c['high'] for c in candles]
+    lows = [c['low'] for c in candles]
     ma_fast = calc_sma(prices, fast)
     ma_slow = calc_sma(prices, slow)
+
+    # The adx_filter parameter was dead: callers (e.g. the backtest engine)
+    # never supplied `adx_data`, so the `if adx_filter and adx_data:` guard
+    # was never true and the trend filter never activated. Compute ADX
+    # internally when a filter is requested but no series was provided.
+    if adx_filter and adx_data is None:
+        adx_result = calc_adx(highs, lows, prices, 14)
+        adx_data = adx_result.get('adx') if isinstance(adx_result, dict) else None
+        if adx_data is None:
+            adx_data = [None] * len(candles)
 
     signals = []
     loop_iter = (

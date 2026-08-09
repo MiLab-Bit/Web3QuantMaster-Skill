@@ -116,12 +116,46 @@ def get_strategy_info(strategy_id: str) -> Optional[Dict[str, Any]]:
 
 
 def strategy_to_registry_entry(strategy_instance) -> Dict[str, Any]:
-    """Generate registry entry from a BaseStrategy instance."""
+    """Generate registry entry from a BaseStrategy instance.
+
+    The returned ``func`` honours the same ``func(candles, **params)`` contract
+    used by function-based strategies (e.g. as invoked by the backtest engine),
+    and converts the ``List[Signal]`` returned by ``BaseStrategy.generate_signals``
+    into the plain-dict format that consumers such as ``backtest._normalize_signals``
+    expect. Without this adapter the two strategy styles had mismatched
+    interfaces and a registered BaseStrategy would either raise (unexpected
+    ``**params``) or silently produce zero trades (Signal dataclasses are not
+    understood by the normalizer).
+    """
     meta = strategy_instance.get_metadata()
+
+    def _adapter(candles, **params):
+        if params:
+            try:
+                strategy_instance.active_params = {
+                    **strategy_instance.active_params, **params
+                }
+            except Exception:
+                pass
+        raw = strategy_instance.generate_signals(candles)
+        converted = []
+        for s in raw:
+            if hasattr(s, "type") and hasattr(s, "index"):
+                converted.append({
+                    "type": getattr(s, "type", ""),
+                    "index": getattr(s, "index", -1),
+                    "price": getattr(s, "price", 0.0),
+                    "confidence": getattr(s, "confidence", 1.0),
+                    "reason": getattr(s, "reason", ""),
+                })
+            else:
+                converted.append(s)
+        return converted
+
     return {
         'id': meta.strategy_id,
         'name': meta.name,
-        'func': strategy_instance.generate_signals,
+        'func': _adapter,
         'params': strategy_instance.params,
         'description': meta.description,
         'requires': meta.requires,
