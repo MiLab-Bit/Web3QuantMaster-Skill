@@ -647,9 +647,11 @@ def analyze_portfolio(symbols: List[str], weights: List[float],
     total_value = sum(weights[:n])
 
     portfolio_var_95  = portfolio_var_daily * z * total_value
-    # CVaR 近似（正态分布假设）
+    # 组合 CVaR（正态期望损失 ES）：ES/VaR 精确乘子 φ(z)/(α·z)
+    # 与 calc_var_garch 保持一致（旧公式 1 + (1-α)/z² 会高估尾部损失）
     alpha_param = 1 - confidence / 100
-    cvar_mult = 1 + 1 / (z ** 2) * (1 - alpha_param)
+    _pdf = math.exp(-z * z / 2.0) / math.sqrt(2.0 * math.pi)
+    cvar_mult = _pdf / (z * alpha_param)
     portfolio_cvar_95 = portfolio_var_95 * cvar_mult
 
     # ── Step 5: 分散化收益 ─────────────────────────
