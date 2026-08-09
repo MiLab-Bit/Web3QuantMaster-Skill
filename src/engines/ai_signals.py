@@ -407,16 +407,34 @@ class AISignalEngine:
         # price is supplied (keeps the demo / legacy callers working).
         base = current_price if current_price and current_price > 0 else 100.0
 
-        entry_zones = [
-            base * (1 - atr_pct / 100.0),
-            base * (1 - atr_pct / 200.0),
-            base,
-        ]
-        stop_loss = base * (1 - 2 * atr_pct / 100.0)
-        # Targets are percentages; `score` in [-1, 1] scales conviction
-        # (the old `abs(score)/100*100` was a no-op that always equalled
-        # abs(score)).
-        take_profits = [base * (1 + t * abs(score) / 100.0) for t in targets]
+        # Levels must respect trade direction. For a long (BUY/STRONG_BUY) we
+        # scale in below the mark (entry <= base), place the stop below and the
+        # targets above. For a short (SELL/STRONG_SELL) the mirror image is
+        # required: scale in above the mark, stop above, targets below. The
+        # previous code generated buy-side levels for every signal, so a short
+        # signal got targets above the mark that would never fill.
+        is_short = signal in (SignalType.SELL, SignalType.STRONG_SELL)
+
+        if is_short:
+            entry_zones = [
+                base * (1 + atr_pct / 100.0),
+                base * (1 + atr_pct / 200.0),
+                base,
+            ]
+            stop_loss = base * (1 + 2 * atr_pct / 100.0)
+            # Targets are percentages; `score` in [-1, 1] scales conviction.
+            take_profits = [base * (1 - t * abs(score) / 100.0) for t in targets]
+        else:
+            entry_zones = [
+                base * (1 - atr_pct / 100.0),
+                base * (1 - atr_pct / 200.0),
+                base,
+            ]
+            stop_loss = base * (1 - 2 * atr_pct / 100.0)
+            # Targets are percentages; `score` in [-1, 1] scales conviction
+            # (the old `abs(score)/100*100` was a no-op that always equalled
+            # abs(score)).
+            take_profits = [base * (1 + t * abs(score) / 100.0) for t in targets]
 
         return entry_zones, stop_loss, take_profits
 
