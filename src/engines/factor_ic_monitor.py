@@ -426,18 +426,19 @@ def _calc_momentum(prices: List[float], period: int = 10) -> List[Optional[float
 # ══════════════════════════════════════════════════
 
 def pearson_ic(x: List, y: List) -> float:
-    """计算两个序列的 Pearson 相关系数（跳过 NaN）"""
-    pairs = [(float(a), float(b)) for a, b in zip(x, y)
-             if not (math.isnan(float(a)) or math.isnan(float(b)) or float(b) == 0)]
-    n = len(pairs)
+    """计算两个序列的 Pearson 相关系数（跳过 NaN / y==0）— 向量化实现。"""
+    xa = np.asarray(x, dtype=float)
+    ya = np.asarray(y, dtype=float)
+    mask = ~(np.isnan(xa) | np.isnan(ya) | (ya == 0))
+    n = int(mask.sum())
     if n < 20:
         return float('nan')
-    sum_x  = sum(p[0] for p in pairs)
-    sum_y  = sum(p[1] for p in pairs)
-    sum_xy = sum(p[0] * p[1] for p in pairs)
-    sum_x2 = sum(p[0]**2 for p in pairs)
-    sum_y2 = sum(p[1]**2 for p in pairs)
-    denom  = math.sqrt(max((n * sum_x2 - sum_x**2) * (n * sum_y2 - sum_y**2), 0))
+    xv, yv = xa[mask], ya[mask]
+    sum_x, sum_y = float(xv.sum()), float(yv.sum())
+    sum_xy = float((xv * yv).sum())
+    sum_x2 = float((xv ** 2).sum())
+    sum_y2 = float((yv ** 2).sum())
+    denom = math.sqrt(max((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2), 0))
     if denom == 0:
         return 0.0
     r = (n * sum_xy - sum_x * sum_y) / denom
@@ -465,19 +466,44 @@ def calc_factor_ic_series(factor_values: List, forward_returns: List) -> Tuple[f
       - n_valid:  有效 IC 点数（用于 Fisher z 显著性检验的样本量）
     """
     ic_series = []
-    for i in range(len(factor_values)):
-        if i < 20:  # 预热期跳过
-            ic_series.append(float('nan'))
-            continue
-        window_x = factor_values[max(0, i-60):i+1]
-        window_y = forward_returns[max(0, i-60):i+1]
-        ic = pearson_ic(window_x, window_y)
-        ic_series.append(ic)
+    fx = np.asarray(factor_values, dtype=float)
+    fy = np.asarray(forward_returns, dtype=float)
+    n_total = len(fx)
+    # Per-index valid mask (same as pearson_ic): skip NaN in either, or y==0.
+    valid = ~(np.isnan(fx) | np.isnan(fy) | (fy == 0))
+    cx = np.where(valid, fx, 0.0)
+    cy = np.where(valid, fy, 0.0)
+    cxy = np.where(valid, fx * fy, 0.0)
+    cx2 = np.where(valid, fx * fx, 0.0)
+    cy2 = np.where(valid, fy * fy, 0.0)
+    cnt = valid.astype(float)
+    # Inclusive prefix sums; window [start, i] sum = P[i+1] - P[start].
+    Px = np.concatenate([[0.0], np.cumsum(cx)])
+    Py = np.concatenate([[0.0], np.cumsum(cy)])
+    Pxy = np.concatenate([[0.0], np.cumsum(cxy)])
+    Px2 = np.concatenate([[0.0], np.cumsum(cx2)])
+    Py2 = np.concatenate([[0.0], np.cumsum(cy2)])
+    Pn = np.concatenate([[0.0], np.cumsum(cnt)])
+    starts = np.maximum(0, np.arange(n_total) - 60)
+    end = np.arange(n_total) + 1
+    sx = Px[end] - Px[starts]
+    sy = Py[end] - Py[starts]
+    sxy = Pxy[end] - Pxy[starts]
+    sx2 = Px2[end] - Px2[starts]
+    sy2 = Py2[end] - Py2[starts]
+    nw = Pn[end] - Pn[starts]
+    denom = np.sqrt(np.maximum((nw * sx2 - sx ** 2) * (nw * sy2 - sy ** 2), 0.0))
+    r = np.where(denom > 0, (nw * sxy - sx * sy) / np.maximum(denom, 1e-300), 0.0)
+    r = np.clip(r, -1.0, 1.0)
+    ic_arr = np.full(n_total, np.nan)
+    ok = (np.arange(n_total) >= 20) & (nw >= 20)
+    ic_arr[ok] = r[ok]
+    ic_series = ic_arr.tolist()
     mean_ic = float('nan')
-    valid_ics = [v for v in ic_series if not math.isnan(v)]
-    n_valid = len(valid_ics)
-    if valid_ics:
-        mean_ic = sum(valid_ics) / n_valid
+    valid_ics = ic_arr[~np.isnan(ic_arr)]
+    n_valid = int(len(valid_ics))
+    if n_valid > 0:
+        mean_ic = float(valid_ics.sum() / n_valid)
     return mean_ic, ic_series, n_valid
 
 
