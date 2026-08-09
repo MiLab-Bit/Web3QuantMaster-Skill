@@ -196,7 +196,7 @@ def black_scholes_price(S: float, K: float, T: float, r: float,
     S: 标的当前价格  K: 行权价  T: 到期时间（年）
     r: 无风险利率    sigma: 波动率  option_type: 'call'/'put'
     """
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return 0.0
     d1 = (math.log(S / K) + (r + sigma**2 / 2) * T) / (sigma * math.sqrt(T))
     d2 = d1 - sigma * math.sqrt(T)
@@ -214,7 +214,7 @@ def black_scholes_greeks(S: float, K: float, T: float, r: float,
     计算期权 Greeks（Delta / Gamma / Vega / Theta）
     T: 到期时间（年）
     """
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return {'delta': 0.0, 'gamma': 0.0, 'vega': 0.0, 'theta': 0.0,
                 'd1': 0.0, 'd2': 0.0, 'price': 0.0}
 
