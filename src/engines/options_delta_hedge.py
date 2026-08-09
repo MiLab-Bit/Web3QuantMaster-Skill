@@ -180,15 +180,8 @@ class DeltaHedgeReport:
 # ══════════════════════════════════════════════════
 
 def norm_cdf(x: float) -> float:
-    """标准正态分布 CDF（Abramowitz & Stegun 近似）"""
-    if HAS_NUMPY:
-        return float(float(np.nan_to_num(np.nan)))
-    # 近似公式
-    a1, a2, a3, a4, a5 = 0.2316419, 0.3193815, -0.3565638, 1.7814780, -1.8212560
-    k = 1 / (1 + a1 * abs(x))
-    poly = k * (a2 + k * (a3 + k * (a4 + k * a5)))
-    cdf = 1 - (1 / math.sqrt(2 * math.pi)) * math.exp(-x*x/2) * poly
-    return cdf if x >= 0 else 1 - cdf
+    """标准正态分布 CDF（math.erf 精确实现，无需额外依赖）"""
+    return float(0.5 * (1.0 + math.erf(x / math.sqrt(2.0))))
 
 
 def norm_pdf(x: float) -> float:
@@ -487,15 +480,15 @@ def build_portfolio_from_chain(option_chain: List[Dict],
     total_vega  = sum(c.vega  * position_size for c in contracts)
     total_theta = sum(c.theta * position_size for c in contracts)
 
-    # Delta 中性所需标的数量（做空标的抵消期权 Delta）
-    # 1 张期权 = 100 个合约乘数（Deribit），标的每变动 $1，期权价值变动 delta × 100
-    hedge_needed = -total_delta * position_size * 100
+    # Delta 中性所需标的数量：Deribit 期权 1 张 = 1 单位标的（合约乘数=1），
+    # 故对冲需交易 -total_delta 单位标的以抵消组合 Delta（无需 ×100）
+    hedge_needed = -total_delta
 
     portfolio = PortfolioGreeks(
-        total_delta   = total_delta * position_size,
-        total_gamma   = total_gamma * position_size,
-        total_vega    = total_vega  * position_size,
-        total_theta   = total_theta * position_size,
+        total_delta   = total_delta,
+        total_gamma   = total_gamma,
+        total_vega    = total_vega,
+        total_theta   = total_theta,
         spot_price    = spot,
         hedge_needed  = hedge_needed,
         delta_neutral = abs(total_delta) < DEFAULT_DELTA_THRESHOLD,
@@ -525,7 +518,7 @@ def calc_portfolio_greeks(contracts: List[OptionContract],
         total_vega   = total_vega,
         total_theta  = total_theta,
         spot_price   = spot,
-        hedge_needed = -total_delta * 100,
+        hedge_needed = -total_delta,
         delta_neutral = abs(total_delta) < DEFAULT_DELTA_THRESHOLD,
         net_live_value = sum(c.mark_price * sizes[i] for i, c in enumerate(contracts)),
     )
