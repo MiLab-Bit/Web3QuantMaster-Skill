@@ -90,21 +90,25 @@ def test_obv_cumulative():
     assert out == [0.0, 2.0, 2.0, -2.0, 3.0]
 
 
-def test_vwap_starts_none():
+def test_vwap_cumulative_includes_bar0():
     h = [2, 3, 4]; l = [1, 2, 3]; c = [1.5, 2.5, 3.5]; v = [10, 20, 30]
     out = calc_vwap(h, l, c, v)
-    assert out[0] is None
-    assert out[1] is not None and out[2] is not None
+    tpv = [(hh + ll + cc) / 3.0 * vv for hh, ll, cc, vv in zip(h, l, c, v)]
+    # Cumulative VWAP must include bar 0.
+    assert out[0] == pytest.approx(tpv[0] / v[0], rel=1e-9)
+    assert out[1] == pytest.approx((tpv[0] + tpv[1]) / (v[0] + v[1]), rel=1e-9)
+    assert out[2] == pytest.approx((tpv[0] + tpv[1] + tpv[2]) / (v[0] + v[1] + v[2]), rel=1e-9)
 
 
-def test_cvd_cumulative():
+def test_cvd_cumulative_includes_bar0():
     bids = [11, 12, 13]; asks = [10, 11, 12]; v = [5, 5, 5]
     out = calc_cvd(bids, asks, v)
-    # i=1: (bids[1]-asks[1])/(bids[1]+asks[1])*v[1] = (12-11)/(12+11)*5
-    # i=2: (13-12)/(13+12)*5
-    assert out[0] == 0.0
-    assert out[1] == pytest.approx((12 - 11) / (12 + 11) * 5, rel=1e-9)
-    assert out[2] == pytest.approx(out[1] + (13 - 12) / (13 + 12) * 5, rel=1e-9)
+    # brute-force cumulative sum including bar 0
+    d = [(b - a) / (b + a) * vv for b, a, vv in zip(bids, asks, v)]
+    expected = [sum(d[: i + 1]) for i in range(len(d))]
+    assert out[0] == pytest.approx(d[0], rel=1e-9)
+    assert out[1] == pytest.approx(expected[1], rel=1e-9)
+    assert out[2] == pytest.approx(expected[2], rel=1e-9)
 
 
 def test_oi_percentile_in_range():

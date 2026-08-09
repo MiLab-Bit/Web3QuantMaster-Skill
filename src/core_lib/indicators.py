@@ -438,11 +438,11 @@ def calc_vwap(
     v = np.asarray(volumes, dtype=np.float64)
     n = len(c)
     tpv = (h + l + c) / 3.0 * v
-    # Original loop starts at i=1, so the running sum excludes index 0.
-    cum_tpv = np.cumsum(tpv[1:])
-    cum_v = np.cumsum(v[1:])
-    vwap = np.full(n, np.nan)
-    vwap[1:] = cum_tpv / np.where(cum_v > 0, cum_v, np.nan)
+    # Cumulative VWAP must sum every bar from the session start (bar 0),
+    # not skip it — otherwise every value is biased by the omitted first bar.
+    cum_tpv = np.cumsum(tpv)
+    cum_v = np.cumsum(v)
+    vwap = cum_tpv / np.where(cum_v > 0, cum_v, np.nan)
     return _sanitize(vwap)
 
 
@@ -589,8 +589,9 @@ def calc_cvd(
     denom = b + a
     safe_denom = np.where(denom > 0, denom, 1.0)
     delta = np.where(denom > 0, (b - a) / safe_denom * v, 0.0)
-    # Original loop starts at i=1, so delta[0] is excluded from the running sum.
-    cvd = np.concatenate([[0.0], np.cumsum(delta[1:])])
+    # Cumulative sum of every bar's delta, INCLUDING bar 0 (its delta is a
+    # self-contained per-bar value, not a difference needing a prior bar).
+    cvd = np.cumsum(delta)
     return cvd.tolist()
 
 
