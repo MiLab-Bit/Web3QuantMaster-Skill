@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple, Set
 from dataclasses import dataclass, field
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,74 @@ class DFSFeatureSet:
             self.ic_scores.items(), key=lambda x: abs(x[1]), reverse=True
         )
         return [f[0] for f in sorted_features[:n]]
+
+
+# =============================================================================
+# Vectorized rolling aggregate helper
+# =============================================================================
+
+
+def _rolling_agg_vec(fvals: np.ndarray, w: int, agg_name: str) -> Optional[np.ndarray]:
+    """Vectorized rolling aggregate over a window of width ``w``.
+
+    Returns an array of length ``len(fvals)`` with ``0.0`` for the warm-up
+    region (positions ``< w-1``) and, at each position ``i >= w-1``, the
+    aggregate of ``fvals[i-w+1 : i+1]``. This reproduces the previous
+    per-window scalar computation exactly (same arithmetic, no windowing
+    artifacts), but replaces the Python ``for`` loop with ``sliding_window_view``.
+
+    For custom windows ``w < 3`` the original loop left every position as
+    ``NaN`` (→ ``0.0`` after ``nan_to_num``); we return an all-zero array to
+    match.
+    """
+    n = len(fvals)
+    if w >= n:
+        return None
+    if w < 3:
+        return np.zeros(n, dtype=fvals.dtype)
+    win = sliding_window_view(fvals, w)  # shape: (n - w + 1, w)
+
+    if agg_name == "mean":
+        out = win.mean(axis=1)
+    elif agg_name == "std":
+        out = win.std(axis=1, ddof=1)
+    elif agg_name == "max":
+        out = win.max(axis=1)
+    elif agg_name == "min":
+        out = win.min(axis=1)
+    elif agg_name == "skew":
+        m = win.mean(axis=1, keepdims=True)
+        s = win.std(axis=1, ddof=1)
+        m3 = ((win - m) ** 3).mean(axis=1)
+        out = m3 / np.maximum(s ** 3, 1e-12)
+    elif agg_name == "kurt":
+        m = win.mean(axis=1, keepdims=True)
+        s = win.std(axis=1, ddof=1)
+        m4 = ((win - m) ** 4).mean(axis=1)
+        out = m4 / np.maximum(s ** 4, 1e-12) - 3.0
+    elif agg_name == "corr":
+        if w > 5:
+            # Pearson correlation between the window values and their index
+            # (trend/linearity). np.corrcoef(arange(w), x)[0,1] — the ddof=1
+            # cancels between numerator and denominator, so the sum form is exact.
+            t = np.arange(w, dtype=fvals.dtype)
+            tm = (w - 1) / 2.0
+            tcent = t - tm
+            denom_a = float((tcent ** 2).sum())
+            m = win.mean(axis=1, keepdims=True)
+            cent = win - m
+            num = (tcent[None, :] * cent).sum(axis=1)
+            denom_b = (cent ** 2).sum(axis=1)
+            out = num / np.sqrt(np.maximum(denom_a * denom_b, 1e-300))
+            out = np.clip(out, -1.0, 1.0)
+        else:
+            out = np.zeros(win.shape[0], dtype=fvals.dtype)
+    else:
+        return None
+
+    result = np.zeros(n, dtype=fvals.dtype)
+    result[w - 1:] = out
+    return result
 
 
 # =============================================================================
@@ -155,17 +224,12 @@ class DFSFeatureGenerator:
         group_rolling = []
         for fname, fvals in zip(all_names[:], all_features[:]):
             for w in win:
-                if w >= n:
-                    continue
-                for agg_name, agg_fn in self.AGG_FUNCTIONS.items():
+                for agg_name in self.AGG_FUNCTIONS:
                     full_name = f"{fname}_{agg_name}_{w}"
                     try:
-                        result = np.full(n, np.nan)
-                        for i in range(w - 1, n):
-                            window_slice = fvals[i - w + 1:i + 1]
-                            if len(window_slice) < max(3, w // 3):
-                                continue
-                            result[i] = agg_fn(window_slice)
+                        result = _rolling_agg_vec(fvals, w, agg_name)
+                        if result is None:
+                            continue
                         result = np.nan_to_num(result, nan=0.0)
                         all_features.append(result)
                         all_names.append(full_name)
