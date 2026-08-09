@@ -86,15 +86,17 @@ def simulate_gbm(S0: float, mu: float, sigma: float, T: int, dt: float = 1/365) 
         S0: 初始价格
         mu: 预期年化收益率（如 0.1 表示 10%）
         sigma: 年化波动率（如 0.5 表示 50%）
-        T: 模拟天数
-        dt: 时间步长（默认 1/365 表示 1 天）
+        T: 模拟天数（总天数；步数 = round(T / (dt*365))，dt 以年为单位）
+        dt: 时间步长（默认 1/365 表示 1 天 = 1/365 年）
     
     Returns:
         np.ndarray: 价格路径数组，长度为 T+1（包含初始价格）
     """
     logger.info(f"开始 GBM 模拟: S0={S0}, mu={mu}, sigma={sigma}, T={T}")
     
-    num_steps = int(T / dt)
+    # T 是模拟「天数」；dt 是「每步年数」(默认 1/365 = 1 天)。
+    # 步数 = 总天数 / 每步天数 = T / (dt * 365)，否则会模拟 T 年而非 T 天。
+    num_steps = int(round(T / (dt * ANNUAL_TRADING_DAYS)))
     price_path = np.zeros(num_steps + 1)
     price_path[0] = S0
     
@@ -138,7 +140,9 @@ def simulate_gbm_batch(S0: float, mu: float, sigma: float, T: int,
     """
     logger.info(f"开始批量 GBM 模拟（完全向量化）: {num_simulations} 次 × {T} 天")
 
-    num_steps = int(T / dt)
+    # T 是模拟「天数」；dt 是「每步年数」(默认 1/365 = 1 天)。
+    # 步数 = 总天数 / 每步天数 = T / (dt * 365)，否则会模拟 T 年而非 T 天。
+    num_steps = int(round(T / (dt * ANNUAL_TRADING_DAYS)))
 
     Z = np.random.normal(0, 1, size=(num_simulations, num_steps))
 
@@ -181,7 +185,9 @@ def simulate_jump_diffusion(S0: float, mu: float, sigma: float, T: int,
     """
     logger.info(f"开始 Jump Diffusion 模拟: lambda={lambda_jump}, mu_jump={mu_jump}")
     
-    num_steps = int(T / dt)
+    # T 是模拟「天数」；dt 是「每步年数」(默认 1/365 = 1 天)。
+    # 步数 = 总天数 / 每步天数 = T / (dt * 365)，否则会模拟 T 年而非 T 天。
+    num_steps = int(round(T / (dt * ANNUAL_TRADING_DAYS)))
     price_path = np.zeros(num_steps + 1)
     price_path[0] = S0
     
@@ -218,7 +224,9 @@ def simulate_jump_diffusion_batch(S0: float, mu: float, sigma: float, T: int,
     """
     logger.info(f"开始批量 Jump Diffusion（向量化）: {num_simulations} × {T}天, λ={lambda_jump}")
     
-    num_steps = int(T / dt)
+    # T 是模拟「天数」；dt 是「每步年数」(默认 1/365 = 1 天)。
+    # 步数 = 总天数 / 每步天数 = T / (dt * 365)，否则会模拟 T 年而非 T 天。
+    num_steps = int(round(T / (dt * ANNUAL_TRADING_DAYS)))
     
     # GBM 扩散部分（向量化）
     Z = np.random.normal(0, 1, size=(num_simulations, num_steps))
@@ -261,7 +269,9 @@ def simulate_student_t(S0: float, mu: float, sigma: float, T: int,
     """
     logger.info(f"开始 Student's t 模拟: nu={nu}, {num_simulations} × {T}天")
     
-    num_steps = int(T / dt)
+    # T 是模拟「天数」；dt 是「每步年数」(默认 1/365 = 1 天)。
+    # 步数 = 总天数 / 每步天数 = T / (dt * 365)，否则会模拟 T 年而非 T 天。
+    num_steps = int(round(T / (dt * ANNUAL_TRADING_DAYS)))
     
     # t 分布随机数（标准化为均值0方差1）
     Z = np.random.standard_t(df=nu, size=(num_simulations, num_steps))
@@ -309,7 +319,9 @@ def simulate_garch(S0: float, mu: float, omega: float = 0.01,
     """
     logger.info(f"开始 GARCH(1,1) 模拟: ω={omega}, α={alpha}, β={beta}, γ={gamma}, {num_simulations} × {T}天")
     
-    num_steps = int(T / dt)
+    # T 是模拟「天数」；dt 是「每步年数」(默认 1/365 = 1 天)。
+    # 步数 = 总天数 / 每步天数 = T / (dt * 365)，否则会模拟 T 年而非 T 天。
+    num_steps = int(round(T / (dt * ANNUAL_TRADING_DAYS)))
     price_paths = np.zeros((num_simulations, num_steps + 1))
     price_paths[:, 0] = S0
     
@@ -431,6 +443,7 @@ def backtest_on_simulated_data(price_paths: np.ndarray, strategy_func: Callable,
 
     return {
         'returns': final_returns,
+        'strategy_returns': strategy_returns,
         'sharpe_ratios': sharpe_ratios,
         'max_drawdowns': max_drawdowns
     }
@@ -648,6 +661,8 @@ def analyze_monte_carlo_results(backtest_results: Dict[str, Any],
         'win_rate': win_rate,
         'var': var,
         'cvar': cvar,
+        'sharpe_ratios': sharpe_ratios,
+        'sortino_ratios': sortino_ratios,
         'sharpe_ratio_mean': np.mean(sharpe_ratios),
         'sortino_ratio_mean': np.mean(sortino_ratios),
         'max_drawdown_mean': np.mean(max_drawdowns),
@@ -799,12 +814,14 @@ def run_stress_test(scenario: str = 'flash_crash', S0: float = 50000,
         price_path = price_paths[0, :]
     
     elif scenario == 'congestion':
-        price_path = simulate_gbm(S0, mu=0.1, sigma=0.5, T=30)
+        base_path = simulate_gbm(S0, mu=0.1, sigma=0.5, T=30)
         congestion_result = simulate_blockchain_congestion(
-            price_path, congestion_prob=0.1, gas_fee_multiplier=5.0
+            base_path, congestion_prob=0.1, gas_fee_multiplier=5.0
         )
         description = "拥堵场景：10% 概率发生拥堵，gas fee 飙升 5 倍"
-        price_path = congestion_result
+        # 由净收益(含拥堵手续费侵蚀)重建价格路径，供终值/回撤统计使用
+        adj = np.asarray(congestion_result['adjusted_returns'], dtype=float)
+        price_path = S0 * np.cumprod(1.0 + adj)
     
     else:
         raise ValueError(f"未知压力场景: {scenario}")
