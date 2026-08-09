@@ -35,7 +35,8 @@ def partial_close(
         return {"success": False, "reason": "ratio must be in (0, 1]"}
 
     price = exit_price or get_live_price(normalized) or pos["entry_price"]
-    close_qty = pos["qty"] * ratio
+    original_qty = pos["qty"]
+    close_qty = original_qty * ratio
 
     # Calculate partial PnL
     if pos["side"] == "long":
@@ -44,11 +45,17 @@ def partial_close(
         pnl = (pos["entry_price"] - price) * close_qty
 
     # Update position
-    remaining_qty = pos["qty"] - close_qty
+    remaining_qty = original_qty - close_qty
     if remaining_qty < 1e-10:
         del engine.data["positions"][normalized]
     else:
         pos["qty"] = remaining_qty
+        # Reduce the reserved margin proportionally so a later full close
+        # releases only the remaining (reduced) margin instead of the full
+        # original — otherwise the account balance is over-counted.
+        orig_margin = pos.get("margin", 0.0) or 0.0
+        if orig_margin > 0 and original_qty > 0:
+            pos["margin"] = orig_margin * (remaining_qty / original_qty)
 
     engine.data["balance"] += close_qty * pos["entry_price"] + pnl
     engine._save()

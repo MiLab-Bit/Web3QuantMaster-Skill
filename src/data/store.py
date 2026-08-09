@@ -247,10 +247,16 @@ class DataStore:
                     opened_at TEXT NOT NULL,
                     closed_at TEXT,
                     strategy TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    margin REAL DEFAULT 0
                 )
             ''')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(status)')
+            # Idempotent migration for existing DBs that lack the margin column
+            try:
+                conn.execute('ALTER TABLE paper_trades ADD COLUMN margin REAL DEFAULT 0')
+            except sqlite3.OperationalError:
+                pass
 
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS paper_trade_log (
@@ -894,15 +900,15 @@ class DataStore:
             for t in trades:
                 conn.execute('''
                     INSERT INTO paper_trades
-                        (symbol, side, quantity, entry_price, exit_price, pnl, status, opened_at, closed_at, strategy, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (symbol, side, quantity, entry_price, exit_price, pnl, status, opened_at, closed_at, strategy, notes, margin)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     t.get('symbol', ''), t.get('side', ''),
                     t.get('quantity', 0), t.get('entry_price', 0),
                     t.get('exit_price'), t.get('pnl', 0),
                     t.get('status', 'open'), t.get('opened_at', ''),
                     t.get('closed_at'), t.get('strategy', ''),
-                    t.get('notes', ''),
+                    t.get('notes', ''), t.get('margin', 0),
                 ))
 
     def load_paper_trades(self) -> List[Dict[str, Any]]:

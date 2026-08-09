@@ -14,6 +14,14 @@ from data.store import DataStore
 from data.ccxt_adapter import fetch_ohlcv_with_fallback, fetch_ticker_with_fallback, CCXTAdapter
 
 
+# Interval string -> seconds (for interval-aware data quality gap detection)
+_INTERVAL_SECONDS = {
+    '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+    '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '8h': 28800,
+    '12h': 43200, '1d': 86400, '3d': 259200, '1w': 604800,
+}
+
+
 def _resolve_exchange(exchange: str) -> str:
     """解析交易所 ID。CCXT 优先 → 内置交易所列表。"""
     adapter = CCXTAdapter()
@@ -122,7 +130,8 @@ def data_quality_check(symbol: str = "BTCUSDT", interval: str = "4h",
         
         # Run quality check
         checker = DataQualityChecker()
-        report = checker.check(candles)
+        interval_seconds = _INTERVAL_SECONDS.get(interval, 14400)
+        report = checker.check(candles, interval_seconds=interval_seconds)
         
         return {
             "status": "ok",

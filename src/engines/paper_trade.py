@@ -119,19 +119,33 @@ class TradeRecord:
 # =============================================================================
 
 def load_account() -> Dict[str, Any]:
-    """从 DB 加载模拟交易账户。"""
+    """从 DB 加载模拟交易账户。
+
+    返回 positions 为以标准化 symbol 为键的 dict，字段与引擎内存格式一致
+    （'qty' / 'margin' / 'open_time' 等），与 open_position 写入的结构对应。
+    """
     from data.store import DataStore
     store = DataStore()
     trades = store.load_paper_trades()
-    open_positions = []
+    open_positions: Dict[str, Dict[str, Any]] = {}
     history = []
     for t in trades:
         if t.get('status') == 'open':
-            open_positions.append({
-                'id': t['id'], 'symbol': t['symbol'], 'side': t['side'],
-                'quantity': t['quantity'], 'entry_price': t['entry_price'],
-                'opened_at': t['opened_at'],
-            })
+            sym = (t.get('symbol') or '').upper()
+            if sym and not sym.endswith('USDT'):
+                sym += 'USDT'
+            open_positions[sym] = {
+                'symbol': sym,
+                'side': t.get('side', 'long'),
+                'entry_price': float(t.get('entry_price', 0) or 0),
+                'qty': float(t.get('quantity', 0) or 0),
+                'leverage': float(t.get('leverage', 1.0) or 1.0),
+                'margin': float(t.get('margin', 0) or 0),
+                'stop_loss': t.get('stop_loss'),
+                'take_profit': t.get('take_profit'),
+                'open_time': t.get('opened_at', ''),
+                'exchange': t.get('exchange', 'binance'),
+            }
         else:
             history.append(t)
     return {
@@ -142,20 +156,24 @@ def load_account() -> Dict[str, Any]:
 
 
 def save_account(data: Dict[str, Any]):
-    """保存模拟交易账户到 DB。"""
+    """保存模拟交易账户到 DB。
+
+    positions 现为以 symbol 为键的 dict（与引擎内存格式一致）。
+    """
     from data.store import DataStore
     store = DataStore()
     trades = []
-    for pos in data.get('positions', []):
+    for pos in data.get('positions', {}).values():
         trades.append({
             'symbol': pos.get('symbol', ''), 'side': pos.get('side', ''),
-            'quantity': pos.get('quantity', 0), 'entry_price': pos.get('entry_price', 0),
-            'status': 'open', 'opened_at': pos.get('opened_at', ''),
+            'quantity': pos.get('qty', 0), 'entry_price': pos.get('entry_price', 0),
+            'margin': pos.get('margin', 0),
+            'status': 'open', 'opened_at': pos.get('open_time', ''),
         })
     for h in data.get('history', []):
         trades.append({
             'symbol': h.get('symbol', ''), 'side': h.get('side', ''),
-            'quantity': h.get('quantity', 0), 'entry_price': h.get('entry_price', 0),
+            'quantity': h.get('qty', 0), 'entry_price': h.get('entry_price', 0),
             'exit_price': h.get('exit_price'),
             'pnl': h.get('pnl', 0),
             'status': 'closed', 'opened_at': h.get('opened_at', ''),
@@ -164,17 +182,32 @@ def save_account(data: Dict[str, Any]):
     store.save_paper_trades(trades)
 
 
+def _to_float(v: Any, default: float = 0.0) -> float:
+    """容错浮点转换：None/空串/非法值回落到 default，避免日志写入崩溃。"""
+    if v is None or v == '':
+        return default
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return default
+
+
 def append_trade_log(record: Dict[str, Any]):
-    """追加交易日志到 DB。"""
+    """追加交易日志到 DB。
+
+    兼容历史记录键名（'qty'/'entry_price'/'remaining_balance'）与规范键名
+    （'quantity'/'price'/'balance'），并对空串/非法值做容错，避免
+    float('') 之类崩溃（open_position 旧记录曾传 'pnl': ''）。
+    """
     from data.store import DataStore
     store = DataStore()
     store.log_paper_trade(
         action=record.get('action', ''),
         symbol=record.get('symbol', ''),
-        quantity=float(record.get('quantity', 0)),
-        price=float(record.get('price', 0)),
-        pnl=float(record.get('pnl', 0)),
-        balance=float(record.get('balance', 0)),
+        quantity=_to_float(record.get('quantity', record.get('qty', 0))),
+        price=_to_float(record.get('price', record.get('entry_price', 0))),
+        pnl=_to_float(record.get('pnl', 0)),
+        balance=_to_float(record.get('balance', record.get('remaining_balance', 0))),
         details=record.get('details', ''),
     )
 
@@ -476,11 +509,11 @@ class PaperTradeEngine:
                 "action": "OPEN",
                 "symbol": symbol,
                 "side": side,
-                "entry_price": entry_price,
-                "exit_price": "",
-                "qty": qty,
+                "quantity": qty,
+                "price": entry_price,
+                "pnl": 0.0,
+                "balance": self.data["balance"],
                 "margin": required_margin,
-                "pnl": "",
             }
         )
         self._save()
@@ -554,11 +587,11 @@ class PaperTradeEngine:
                 "action": "CLOSE",
                 "symbol": symbol,
                 "side": pos["side"],
-                "entry_price": pos["entry_price"],
-                "exit_price": exit_price,
-                "qty": pos["qty"],
-                "margin": pos["margin"],
+                "quantity": pos["qty"],
+                "price": exit_price,
                 "pnl": round(pnl, 4),
+                "balance": self.data["balance"],
+                "margin": pos["margin"],
             }
         )
         self._save()
@@ -664,7 +697,16 @@ class PaperTradeEngine:
 
     def reset(self, full: bool = False):
         if full:
-            self._data = TRADE_DB_DEFAULT.copy()
+            # Build a brand-new dict each time so the module-level
+            # TRADE_DB_DEFAULT (and its mutable 'positions') is never shared
+            # across engine instances.
+            self._data = {
+                "balance": DEFAULT_BALANCE,
+                "positions": {},
+                "history": [],
+                "stats": {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0},
+                "total_fees": 0.0,
+            }
         else:
             for sym in list(self.data.get("positions", {}).keys()):
                 self.close_position(sym)

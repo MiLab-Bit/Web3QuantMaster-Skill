@@ -48,8 +48,18 @@ class DataQualityChecker:
     def __init__(self, strict: bool = False):
         self.strict = strict
     
-    def check(self, candles: List[Dict]) -> Dict[str, Any]:
+    def check(
+        self,
+        candles: List[Dict],
+        interval_seconds: int = 14400,
+    ) -> Dict[str, Any]:
         """Check data quality across completeness, accuracy, and gap detection.
+
+        Args:
+            candles: OHLC candle list.
+            interval_seconds: expected spacing between consecutive candles.
+                Used for gap detection (a gap = spacing > 1.5x the expected
+                interval). Defaults to 14400 (4h) for backward compatibility.
 
         Returns:
             Dict with 'score', 'grade', 'issues' (serializable), 'issues_count'.
@@ -106,8 +116,10 @@ class DataQualityChecker:
                     else:
                         tp = datetime.fromisoformat(str(t_prev).replace("Z", "+00:00"))
                     diff_seconds = abs((tc - tp).total_seconds())
-                    # Heuristic: gap > 2x expected interval
-                    if diff_seconds > 3600 * 4:  # > 4 hours gap
+                    # Heuristic: gap when spacing exceeds 1.5x the expected
+                    # interval (interval-aware, so non-4h series aren't all
+                    # flagged as gaps).
+                    if diff_seconds > interval_seconds * 1.5:
                         gap_count += 1
                 except (ValueError, TypeError, OSError):
                     pass  # Can't parse timestamp, skip
