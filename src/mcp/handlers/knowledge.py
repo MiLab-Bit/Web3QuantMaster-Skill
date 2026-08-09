@@ -254,7 +254,9 @@ def factor_analysis(
                 sum_xy = sum(a * b for a, b in zip(vals_aligned, ret_aligned))
                 sum_x2 = sum(a ** 2 for a in vals_aligned)
                 sum_y2 = sum(b ** 2 for b in ret_aligned)
-                denom = math.sqrt((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2))
+                denom_sq = (n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2)
+                # guard: float rounding can make denom_sq slightly negative
+                denom = math.sqrt(denom_sq) if denom_sq > 0 else 0.0
                 ic = (n * sum_xy - sum_x * sum_y) / denom if denom != 0 else 0
             else:
                 ic = 0.0
