@@ -327,9 +327,9 @@ class HMMRegimeDetector:
         for i in range(self.n_regimes):
             p_self = trans_mat[i][i]
             if p_self < 1.0:
-                durations[REGIME_LABELS.get(i, f"状态{i}")] = round(1 / (1 - p_self), 1)
+                durations[self._state_label(i)] = round(1 / (1 - p_self), 1)
             else:
-                durations[REGIME_LABELS.get(i, f"状态{i}")] = float("inf")
+                durations[self._state_label(i)] = float("inf")
 
         # 当前状态稳定性（自转移概率）
         stability = trans_mat[current_state][current_state]
@@ -340,7 +340,7 @@ class HMMRegimeDetector:
             MarketRegime.UNKNOWN.value, "观望"))
 
         # 所有状态概率
-        all_probs = {REGIME_LABELS.get(i, f"状态{i}"): float(current_probs[i])
+        all_probs = {self._state_label(i): float(current_probs[i])
                      for i in range(self.n_regimes)}
 
         current_regime_state = RegimeState(
@@ -367,6 +367,19 @@ class HMMRegimeDetector:
             next_regime_prob=next_probs
         )
 
+    def _state_label(self, i: int) -> str:
+        """返回第 i 个 HMM 状态的实际语义标签 (由 _interpret_states 解释得到)。
+
+        HMM 状态本身无序, 不能按固定索引假定 state 0 = 强势上涨。
+        必须用拟合后各状态的均值收益/波动率解释出的语义标签,
+        否则 all_probs / next_regime_prob / expected_duration 的键名会与真实状态错位。
+        """
+        interp = self.interpretations.get(i, {})
+        lbl = interp.get("label", "")
+        if "(" in lbl:
+            lbl = lbl.split("(")[0].strip()
+        return lbl or f"状态{i}"
+
     def _state_to_enum(self, state_idx: int) -> MarketRegime:
         """将数值状态映射到 MarketRegime 枚举"""
         interp = self.interpretations.get(state_idx, {})
@@ -388,7 +401,7 @@ class HMMRegimeDetector:
     def _predict_next(self, current_state: int) -> Dict[str, float]:
         """基于转移矩阵预测下一个状态的概率分布"""
         trans = self.model.transmat_[current_state]
-        return {REGIME_LABELS.get(i, f"状态{i}"): float(trans[i])
+        return {self._state_label(i): float(trans[i])
                 for i in range(self.n_regimes)}
 
     def _build_history(self, hidden_states: np.ndarray,
@@ -416,7 +429,7 @@ class HMMRegimeDetector:
         lines = []
         for i in range(self.n_regimes):
             row = " ".join(f"{mat[i][j]:.2f}" for j in range(self.n_regimes))
-            label = REGIME_LABELS.get(i, f"状态{i}")
+            label = self._state_label(i)
             lines.append(f"{label:<10s} [{row}]  自转={mat[i][i]:.2f}")
         return {"matrix": "\n".join(lines), "raw": mat.tolist()}
 

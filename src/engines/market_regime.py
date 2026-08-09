@@ -94,7 +94,7 @@ class MarketRegimeDetector:
                 volume_data.get("volume_trend", "neutral"),
                 price_data.get("price_change_7d", 0)
             )
-            indicators["volume"] = {"score": vol_confirm, "signals": vol_confirm}
+            indicators["volume"] = {"score": vol_confirm, "signals": vol_signals}
             signals.extend(vol_signals)
 
         if sentiment_data:
