@@ -105,7 +105,7 @@ def _run_single_backtest(candles, strategy, params):
             'max_drawdown': result.max_drawdown,
             'win_rate': result.win_rate,
             'trade_count': result.total_trades,
-            'profit_factor': result.get('profit_factor', 0),
+            'profit_factor': result.profit_factor,
             'params': params,
         }
     except Exception as e:
