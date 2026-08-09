@@ -446,15 +446,24 @@ def pearson_ic(x: List, y: List) -> float:
 
 
 def compute_forward_returns(prices: List[float], forward: int = 1) -> List[float]:
-    """计算前向收益率序列（与价格等长，用 NaN 填充前面）"""
-    returns = [float('nan')] * forward
-    for i in range(len(prices) - forward):
+    """计算前向收益率序列（与价格等长，尾部填充 NaN）。
+
+    forward_returns[i] = (prices[i + forward] - prices[i]) / prices[i]
+    即“从时刻 i 开始、持有 forward 期的收益”，用于计算**预测型** IC：
+    factor[i] 应与 forward_returns[i]（未来收益）相关，而非与已实现的“尾部收益”
+    （return 结束于 i）相关。末尾 forward 根无未来数据，以 NaN 填充（尾部填充）。
+
+    旧实现前填充（forward_returns[i] 实际是“结束于 i 的收益”），导致 IC 与
+    已实现收益对齐而非前向收益，系统性错配（off-by-forward）。
+    """
+    n = len(prices)
+    returns = [float('nan')] * n
+    if forward < 1:
+        forward = 1
+    for i in range(n - forward):
         if prices[i] != 0:
-            ret = (prices[i + forward] - prices[i]) / prices[i]
-            returns.append(ret)
-    while len(returns) < len(prices):
-        returns.append(float('nan'))
-    return returns[:len(prices)]
+            returns[i] = (prices[i + forward] - prices[i]) / prices[i]
+    return returns
 
 
 def calc_factor_ic_series(factor_values: List, forward_returns: List) -> Tuple[float, List[float], int]:
@@ -702,32 +711,56 @@ def fetch_large_klines(symbol: str, interval: str, weeks: int = 52) -> List[Dict
 def track_decay(history: List[Dict], factor: str,
                 n_weeks: int = DECAY_ALERT_WEEKS) -> Tuple[int, str]:
     """
-    根据历史 IC 数据跟踪因子衰减状态
-    返回: (decay_weeks, status)
+    根据历史 IC 数据跟踪因子衰减状态（规则见模块顶部与 --help）。
+
+    规则:
+      - DECAY_HALF: 连续 DECAY_ALERT_WEEKS(4) 周 |IC| < IC_THRESHOLD_MODERATE(0.05)
+      - DROP:       连续 DECAY_DISABLE_WEEKS(6) 周 |IC| < IC_THRESHOLD_WEAK(0.02)
+      - RECOVERING: 连续 DECAY_RECOVER_WEEKS(3) 周 |IC| > IC_THRESHOLD_MODERATE(0.05)
+
+    从最近一周往前累计“连续命中”的周数；各阈值链相互独立（一段 0.02<=|IC|<0.05
+    的周只计入 DECAY_HALF 链，不计入 DROP 链）。返回 (连续周数, 状态)。
+
+    旧实现先用 [-n_weeks:](4) 截断再 [-6:]（空操作），导致 DROP(需 6 周) 永远
+    不可达；且 DECAY_HALF 误用 <0.02 阈值、缺失 RECOVERING 逻辑。
     """
     factor_records = [r for r in history if r.get('factor') == factor]
     if len(factor_records) < n_weeks:
-        return 0, 'INSUFFICIENT_DATA'
+        return 0, DecayStatus.NORMAL.value
 
-    # 取最近的 n_weeks 条记录
-    recent = factor_records[-n_weeks:] if len(factor_records) >= n_weeks else factor_records
-    recent = recent[-(DECAY_DISABLE_WEEKS):]  # 最多看到 6 周
+    # 需回看至多 DECAY_DISABLE_WEEKS 周才能判定 DROP
+    recent = factor_records[-DECAY_DISABLE_WEEKS:]
 
-    # 计算连续失效周数（IC < 0.05）
-    consecutive_invalid = 0
+    consec_half = 0     # 连续 |IC| < 0.05 的周数
+    consec_drop = 0     # 连续 |IC| < 0.02 的周数
+    consec_recover = 0  # 连续 |IC| > 0.05 的周数
     for r in reversed(recent):
         ic = r.get('ic', float('nan'))
-        if math.isnan(ic) or abs(ic) < IC_THRESHOLD_WEAK:
-            consecutive_invalid += 1
-        else:
-            break
+        if math.isnan(ic):
+            # 缺失视作失效：三类计数均推进，恢复链清零
+            consec_half += 1
+            consec_drop += 1
+            consec_recover = 0
+        elif abs(ic) < IC_THRESHOLD_WEAK:        # |IC| < 0.02
+            consec_half += 1
+            consec_drop += 1
+            consec_recover = 0
+        elif abs(ic) < IC_THRESHOLD_MODERATE:     # 0.02 <= |IC| < 0.05
+            consec_half += 1
+            consec_drop = 0
+            consec_recover = 0
+        else:                                     # |IC| >= 0.05
+            consec_recover += 1
+            consec_half = 0
+            consec_drop = 0
 
-    if consecutive_invalid >= DECAY_DISABLE_WEEKS:
-        return consecutive_invalid, DecayStatus.DROP.value
-    elif consecutive_invalid >= DECAY_ALERT_WEEKS:
-        return consecutive_invalid, DecayStatus.DECAY_HALF.value
-    else:
-        return 0, DecayStatus.NORMAL.value
+    if consec_drop >= DECAY_DISABLE_WEEKS:
+        return consec_drop, DecayStatus.DROP.value
+    if consec_recover >= DECAY_RECOVER_WEEKS:
+        return consec_recover, DecayStatus.RECOVERING.value
+    if consec_half >= DECAY_ALERT_WEEKS:
+        return consec_half, DecayStatus.DECAY_HALF.value
+    return 0, DecayStatus.NORMAL.value
 
 
 def calc_decay_weight(decay_weeks: int) -> float:
@@ -834,7 +867,7 @@ def run_ic_monitor(symbol: str, interval: str,
                 'factor':  factor_name,
                 'status':  decay_status,
                 'weeks':   decay_weeks,
-                'message': f"[{decay_status}] {factor_name} 连续 {decay_weeks} 周 IC < {IC_THRESHOLD_WEAK}，建议权重降至 {weight:.0%}",
+                'message': f"[{decay_status}] {factor_name} 连续 {decay_weeks} 周 IC 走低（DECAY_HALF<{IC_THRESHOLD_MODERATE:.2f} / DROP<{IC_THRESHOLD_WEAK:.2f}），建议权重降至 {weight:.0%}",
             })
         if level == ICLevel.STRONG.value and ic_ir >= 0.5:
             alerts.append({

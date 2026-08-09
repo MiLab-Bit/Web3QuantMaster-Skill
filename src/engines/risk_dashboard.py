@@ -278,10 +278,14 @@ def garch_volatility_forecast(log_returns: np.ndarray,
     # 预测未来
     sigma2_uncond = omega / (1 - alpha - beta + 1e-10)
     results = {}
-    for h, label in [(1, '1h'), (4, '4h'), (24, '1d')]:
-        periods = h if label == '1h' else (h if label == '4h' else 24)
+    # 各标签对应的“绝对时间跨度(小时)”→ 按数据频率换算成 GARCH 步数。
+    # 例如 4h 数据(periods_per_day=6)：1h→round(1*6/24)=1 步(=4h 跨度，亚周期下限)、
+    # 4h→1 步、1d→6 步。1h 数据(periods_per_day=24) 则 1/4/24 步全部精确。
+    # 旧实现硬编码 periods=(1,4,24)，在 4h/1d 数据上标签与实际跨度错位 4x/24x。
+    for label, hours in [('1h', 1), ('4h', 4), ('1d', 24)]:
+        steps = max(1, round(hours * periods_per_day / 24))
         # H-step 方差预测
-        decay = (alpha + beta) ** periods
+        decay = (alpha + beta) ** steps
         sigma2_h = sigma2_uncond + (sigma2_cur - sigma2_uncond) * decay
         results[f'garch_vol_{label}'] = math.sqrt(sigma2_h) * annual_factor * 100
 
@@ -299,10 +303,15 @@ def historical_volatility(returns: np.ndarray, annualize: int = 365
 
 def calc_vol_percentile(garch_vol: float, hv_series: np.ndarray
                           ) -> float:
-    """计算 GARCH 波动率在历史分布中的百分位"""
+    """计算 GARCH 波动率在历史分布中的百分位。
+
+    garch_vol 与 hv_series 均为百分比单位（historical_volatility 已 *100），
+    直接比较即可。旧实现用 garch_vol/100 将百分比错误转为分数后再与
+    百分比序列比较，导致 np.sum(hv_series < 0.8) 恒为 0、百分位恒为 0%。
+    """
     if len(hv_series) < 10:
         return 50.0
-    return float(np.sum(hv_series < garch_vol / 100) / len(hv_series) * 100)
+    return float(np.sum(hv_series < garch_vol) / len(hv_series) * 100)
 
 
 def get_risk_level(garch_vol: float) -> Tuple[str, str]:
@@ -362,18 +371,26 @@ def calc_var_cvar(returns: np.ndarray,
 
 
 def norm_ppf(p: float) -> float:
-    """正态分布分位数函数（Abramowitz & Stegun 近似）"""
+    """标准正态分布分位数函数 Φ⁻¹(p)（Abramowitz & Stegun 26.2.23 有理近似）。
+
+    最大绝对误差 ≈ 4.5e-4。旧实现用 6 次多项式 t - P(t)*t 冒充有理近似，
+    导致 norm_ppf(0.5)≈-8（应为 0）、norm_ppf(0.05)≈-183（应为 -1.645），
+    在 calc_var_cvar 的小样本(<30)正态近似分支给出灾难性 VaR。
+    """
     if p <= 0:
         return -10.0
     if p >= 1:
         return 10.0
     if p < 0.5:
-        t = math.sqrt(-2 * math.log(p))
-        q = t - (((((0.010328 * t + 0.802853) * t + 2.515517) * t + 1.432788) * t + 0.189269) * t + 0.001308) * t
+        t = math.sqrt(-2.0 * math.log(p))
+        x = t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (
+            1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t)
+        return -x
     else:
-        t = math.sqrt(-2 * math.log(1 - p))
-        q = -t + (((((0.010328 * t + 0.802853) * t + 2.515517) * t + 1.432788) * t + 0.189269) * t + 0.001308) * t
-    return q
+        t = math.sqrt(-2.0 * math.log(1.0 - p))
+        x = t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (
+            1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t)
+        return x
 
 
 # ══════════════════════════════════════════════════
@@ -584,6 +601,14 @@ class RiskDashboardEngine:
 
         # ── VaR ────────────────────────────────────
         var_95, var_99, cvar_95, cvar_99 = calc_var_cvar(log_ret)
+
+        # calc_var_cvar 基于逐根 K 线收益，给出“单根 K 线”VaR；
+        # 标签为“单日最大损失”，需按频率聚合到日度（日收益方差≈单根×periods_per_day）。
+        daily_scale = math.sqrt(periods_per_day)
+        var_95 *= daily_scale
+        var_99 *= daily_scale
+        cvar_95 *= daily_scale
+        cvar_99 *= daily_scale
 
         position_value = self.total_value * self.weights.get(symbol, 1.0/len(self.symbols))
 
