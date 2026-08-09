@@ -26,6 +26,45 @@ class SentimentResult:
     sample_count: int = 0
     confidence: float = 0.0
 
+    def to_signal_weight(self) -> Dict[str, Any]:
+        """标准化情绪信号权重（v2.0：含极值反转信号）。
+
+        归属 SentimentResult：直接从结果对象的 overall_score 与
+        dominant_narrative 读取，避免误用 SentimentAnalyzer 的实例属性
+        （其并不持有这些结果字段，会导致权重恒为中性）。
+        """
+        score = float(getattr(self, 'overall_score', 0.0) or 0.0)
+
+        signal_weight = 1.0 + score * 0.5
+        signal_weight = max(0.5, min(1.5, signal_weight))
+
+        if score > 0.5:
+            zone, fl, fs = 'extreme_greed', True, False
+        elif score > 0.2:
+            zone, fl, fs = 'greed', False, False
+        elif score < -0.5:
+            zone, fl, fs = 'extreme_fear', False, True
+        elif score < -0.2:
+            zone, fl, fs = 'fear', False, False
+        else:
+            zone, fl, fs = 'neutral', False, False
+
+        reversal = None
+        if score < -0.6:
+            reversal = 'CONTRARIAN_BUY'
+        elif score > 0.6:
+            reversal = 'CONTRARIAN_SELL'
+
+        return {
+            'sentiment_score': round(score, 4),
+            'signal_weight': round(signal_weight, 4),
+            'fear_greed_zone': zone,
+            'filter_short': fs,
+            'filter_long': fl,
+            'reversal_signal': reversal,
+            'dominant_narrative': getattr(self, 'dominant_narrative', 'none'),
+        }
+
 class SentimentAnalyzer:
     """Multi-source crypto sentiment analyzer."""
 
@@ -447,32 +486,9 @@ class SentimentAnalyzer:
             "symbol": symbol,
             "category": category,
             "count": len(items),
-            "items": items,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    
-    def to_signal_weight(self) -> Dict[str, Any]:
-        """标准化情绪信号权重（v2.0：含极值反转信号）。"""
-        score = getattr(self, 'overall_score', 0) if hasattr(self, 'overall_score') else 0
-        if hasattr(self, 'sentiment_analysis'):
-            score = self.sentiment_analysis.get('overall_score', score)
-        signal_weight = 1.0 + score * 0.5
-        signal_weight = max(0.5, min(1.5, signal_weight))
-        
-        if score > 0.5: zone, fl, fs = 'extreme_greed', True, False
-        elif score > 0.2: zone, fl, fs = 'greed', False, False
-        elif score < -0.5: zone, fl, fs = 'extreme_fear', False, True
-        elif score < -0.2: zone, fl, fs = 'fear', False, False
-        else: zone, fl, fs = 'neutral', False, False
-        
-        reversal = None
-        if score < -0.6: reversal = 'CONTRARIAN_BUY'
-        elif score > 0.6: reversal = 'CONTRARIAN_SELL'
-        
-        return {'sentiment_score': round(score, 4), 'signal_weight': round(signal_weight, 4),
-                'fear_greed_zone': zone, 'filter_short': fs, 'filter_long': fl,
-                'reversal_signal': reversal,
-                'dominant_narrative': getattr(self, 'dominant_narrative', 'none')}
+        "items": items,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def sentiment_adjust_signal(base_signal: str, sentiment_weight: Dict[str, Any], position_size: float = 1.0) -> tuple:

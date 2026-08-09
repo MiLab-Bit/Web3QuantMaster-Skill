@@ -600,15 +600,10 @@ class NarrativeTracker:
         risk       = self.scorer.get_risk_level(heat, sentiment)
 
         # 价格相关性
+        # `mentions` 是一个标量（24h 总量），并非时间序列；用常数序列与价格
+        # 收益率做相关是无定义的（恒为 0 / NaN）。因此这里不再伪造相关值，
+        # 真正的逐标的叙事-价格相关性应在具备“提及量时间序列”时再计算。
         correlations = {}
-        if calc_correlation and top_assets:
-            for token in top_assets[:3]:
-                returns = self.prc.fetch_price_history(token, days=7)
-                if returns:
-                    corr = self.prc.calc_correlation(
-                        [mentions] * len(returns), returns)
-                    correlations[token] = round(corr, 4)
-                time.sleep(0.2)
 
         ns = NarrativeSignal(
             name         = narrative,

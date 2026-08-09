@@ -625,17 +625,17 @@ def analyze_monte_carlo_results(backtest_results: Dict[str, Any],
     std_return = np.std(returns)
     win_rate = np.sum(returns > 0) / len(returns)
     
-    # Calculate Sortino ratios for all simulations
+    # Per-simulation Sortino ratios from the actual strategy return paths.
+    # (No random resampling: resampling the scalar return distribution would
+    #  replace the real per-path Sortino with meaningless, non-reproducible
+    #  values.)
     sortino_ratios = np.array([
         calculate_sortino_ratio(backtest_results['strategy_returns'][i, :])
         if 'strategy_returns' in backtest_results
         else calculate_sortino_ratio(np.array([returns[i]]))
         for i in range(len(returns))
     ])
-    # Fallback: compute single-return Sortino from the distribution
-    if len(returns) > 1:
-        sortino_ratios = np.array([calculate_sortino_ratio(np.random.choice(returns, size=min(30, len(returns)), replace=False)) for _ in range(min(1000, len(returns)))])
-    
+
     percentiles = [5, 25, 50, 75, 95]
     return_percentiles = np.percentile(returns, percentiles)
     sharpe_percentiles = np.percentile(sharpe_ratios, percentiles)

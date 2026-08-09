@@ -103,7 +103,7 @@ def score_signals(
         ic * 30 +
         (1.0 - decay) * 10 +
         (1.0 - fp_rate) * 10
-    ) * 100 / 100 * 100
+    )
 
     overall = min(100.0, max(0.0, overall))
 

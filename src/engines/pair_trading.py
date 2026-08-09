@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+import math
 import numpy as np
 
 
@@ -92,6 +93,43 @@ class PairTradingEngine:
 
         return results
 
+    @staticmethod
+    def _spread_is_stationary(spread: np.ndarray, crit: float = -2.86) -> bool:
+        """Augmented Dickey-Fuller stationarity test (ADF(1) with constant).
+
+        Used as the real cointegration criterion: a genuinely cointegrated
+        pair has a *stationary* (mean-reverting) spread. Plain correlation is
+        NOT cointegration (two trending series can be highly correlated yet
+        have a non-stationary, diverging spread), so the gate tests the spread
+        directly via an ADF t-statistic instead of abs(corr) > threshold.
+
+        Args:
+            spread: residual spread series (pa - hedge_ratio * pb)
+            crit: ADF 5% critical value (~ -2.86 for the constant model, n>50)
+        """
+        y = np.asarray(spread, dtype=np.float64)
+        if len(y) < 10:
+            return False
+        dy = np.diff(y)
+        ylag = y[:-1]
+        X = np.column_stack([np.ones(len(ylag)), ylag])
+        coef, *_ = np.linalg.lstsq(X, dy, rcond=None)
+        resid = dy - X @ coef
+        n = len(dy)
+        dof = n - X.shape[1]
+        if dof <= 0:
+            return False
+        sigma2 = float(np.sum(resid ** 2) / dof)
+        try:
+            xtx_inv = np.linalg.inv(X.T @ X)
+        except np.linalg.LinAlgError:
+            return False
+        se = math.sqrt(max(sigma2 * xtx_inv[1, 1], 0.0))
+        if se == 0:
+            return False
+        t_stat = coef[1] / se
+        return t_stat < crit
+
     def _analyze_pair(
         self, pa: np.ndarray, pb: np.ndarray, name_a: str, name_b: str
     ) -> PairResult:
@@ -122,7 +160,7 @@ class PairTradingEngine:
             half_life = float("inf")
 
         cointegrated = (
-            abs(corr) > 0.5
+            self._spread_is_stationary(spread)
             and self.min_half_life <= half_life <= self.max_half_life
             and spread_std > 1e-12
         )
