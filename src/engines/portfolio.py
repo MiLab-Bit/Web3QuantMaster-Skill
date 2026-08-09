@@ -417,7 +417,13 @@ def suggest_rebalance(analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
     total = analysis['total_value']
     suggestions: List[Dict[str, Any]] = []
 
-    stable_pct = sum(p['pct'] for p in positions if p['risk'] in ('NEGLIGIBLE', 'NONE'))
+    # Stablecoins are classified with risk 'LOW' (the dynamic-volatility override
+    # in analyze_portfolio always sets their risk to 'LOW'), so filtering positions
+    # by a 'NEGLIGIBLE'/'NONE' risk label never matches them — the stablecoin
+    # rebalance suggestion would therefore fire unconditionally (or never, depending
+    # on static fallback) and ignore the real stablecoin share. Use the symbol-based
+    # stablecoin_pct that analyze_portfolio already computed instead.
+    stable_pct = analysis.get('stablecoin_pct', 0.0)
     low_pct = sum(p['pct'] for p in positions if p['risk'] == 'LOW')
     mid_pct = sum(p['pct'] for p in positions if p['risk'] == 'MEDIUM')
     high_pct = sum(p['pct'] for p in positions if p['risk'] in ('HIGH', 'VERY HIGH'))
