@@ -376,10 +376,10 @@ def calc_var_garch(params: GARCHParams,
     # VaR = position × σ × z
     var_usd  = position_usd * sigma_pred * z
 
-    # CVaR = position × σ × (exp(-z²/2) / (sqrt(2π) × (1-α)))
-    # 近似：CVaR ≈ VaR × (1 + 1/z²)
+    # CVaR = position × σ × φ(z)/(z·α)  (正态期望损失 ES 精确乘子)
     alpha_param = 1 - confidence / 100.0
-    cvar_multiplier = 1 + 1 / (z ** 2) * (1 - alpha_param)
+    _pdf = math.exp(-z * z / 2.0) / math.sqrt(2.0 * math.pi)
+    cvar_multiplier = _pdf / (z * alpha_param)
     cvar_usd = var_usd * cvar_multiplier
 
     return var_usd, cvar_usd

@@ -625,7 +625,7 @@ def monte_carlo_var(
     Returns:
         Dict with var, cvar, method, confidence, n_simulations
     """
-    dt = days / 252
+    dt = days / 365  # 加密市场 365 交易日，与 annual_vol 年化口径一致
     volatility = annual_vol * np.sqrt(dt)
 
     rng = np.random.RandomState(seed) if seed is not None else np.random

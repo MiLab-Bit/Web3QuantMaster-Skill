@@ -223,7 +223,9 @@ def calc_var_cvar_garch(params: GARCHParams,
 
     var_pct = sigma_pred * z * 100
     alpha_param = 1 - confidence / 100.0
-    cvar_multiplier = 1 + 1 / (z ** 2) * (1 - alpha_param)
+    # 正态期望损失(ES)相对 VaR 的精确乘子: φ(z) / (z·α)
+    _pdf = math.exp(-z * z / 2.0) / math.sqrt(2.0 * math.pi)
+    cvar_multiplier = _pdf / (z * alpha_param)
     cvar_pct = var_pct * cvar_multiplier
 
     return {
