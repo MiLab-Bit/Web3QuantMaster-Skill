@@ -100,6 +100,7 @@ class AttributionEngine:
         benchmark_returns: Optional[List[float]] = None,
         initial_balance: float = 10000.0,
         period_type: str = "monthly",
+        benchmark_is_index: bool = False,
     ) -> AttributionResult:
         """Run full attribution analysis.
 
@@ -127,7 +128,9 @@ class AttributionEngine:
 
         # ── Trade decomposition ──
         if trades:
-            result.trades = self._decompose_trades(trades, benchmark_returns, candles)
+            result.trades = self._decompose_trades(
+                trades, benchmark_returns, candles, benchmark_is_index
+            )
             result.factors = self._factor_attribution(trades, signals)
 
         # ── Period attribution ──
@@ -147,6 +150,7 @@ class AttributionEngine:
         trades: List[Dict],
         benchmark_returns: Optional[List[float]],
         candles: Optional[List[Dict]],
+        benchmark_is_index: bool = False,
     ) -> List[TradeDecomposition]:
         """Break each trade into α, β, and costs."""
         results = []
@@ -175,9 +179,26 @@ class AttributionEngine:
                     time_idx = t.get("exit_idx", len(benchmark_returns) - 1)
                     entry_idx = t.get("entry_idx", max(0, time_idx - 10))
                     if 0 <= entry_idx < time_idx < len(benchmark_returns):
-                        bench_ret = benchmark_returns[time_idx] - benchmark_returns[entry_idx]
-                        market_pct = bench_ret * 100
-                except (IndexError, TypeError):
+                        if benchmark_is_index:
+                            # benchmark_returns is a cumulative return index
+                            # (e.g. an equity curve / price index). The
+                            # holding-period return is I_exit / I_entry - 1.
+                            base = benchmark_returns[entry_idx]
+                            market_pct = (
+                                (benchmark_returns[time_idx] / base - 1.0) * 100
+                                if base > 0 else 0.0
+                            )
+                        else:
+                            # benchmark_returns is a series of per-bar simple
+                            # returns (the documented convention). The
+                            # holding-period return compounds them: Π(1+r) - 1.
+                            seg = benchmark_returns[entry_idx + 1 : time_idx + 1]
+                            if seg:
+                                market_pct = (
+                                    float(np.prod([1.0 + float(r) for r in seg]) - 1.0)
+                                    * 100
+                                )
+                except (IndexError, TypeError, ValueError):
                     pass
 
             # α = total - β - fees - slippage
@@ -249,7 +270,13 @@ class AttributionEngine:
             return [combined]
 
         factors = []
-        total_pnl = sum(abs(t.get("pnl", 0)) for t in trades)
+        # Net realized PnL over closing trades — the same universe that
+        # factor_trades is drawn from. The previous abs() denominator broke
+        # 100%-additivity (contributions summed to net/gross, not 100%) and
+        # mangled the sign of losing factors' contributions.
+        total_pnl = sum(
+            t.get("pnl", 0.0) for t in trades if t.get("type") in ("sell", "cover")
+        )
 
         for factor_name, signal_array in signals.items():
             # Find trades triggered by this factor's signals.

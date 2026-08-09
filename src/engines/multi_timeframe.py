@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import sys
 import os
-import ccxt
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -75,6 +74,12 @@ def fetch_ohlcv(symbol: str, timeframe: str, days: int = 30,
     """
     logger.info(f"获取 {symbol} {timeframe} 数据，共 {days} 天")
     
+    try:
+        import ccxt
+    except ImportError:
+        logger.error("ccxt is required for live data fetching: pip install ccxt")
+        return pd.DataFrame()
+
     try:
         exchange = getattr(ccxt, exchange_id)({
             'enableRateLimit': True,
@@ -130,24 +135,53 @@ def generate_ma_cross_signal(df: pd.DataFrame, short_window: int = 5, long_windo
     else:
         return 'neutral'
 
+def _wilder_rsi_last(prices: List[float], period: int = 14) -> Optional[float]:
+    """Canonical Wilder RSI (RMA smoothing) — mirrors core_lib.indicators.calc_rsi.
+
+    Returns the most recent RSI value, or None if insufficient data.
+    """
+    arr = np.asarray(prices, dtype=float)
+    if len(arr) < period + 1:
+        return None
+    changes = np.diff(arr)
+    gains = np.maximum(changes, 0.0)
+    losses = np.maximum(-changes, 0.0)
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    rsi = 100.0 if avg_loss == 0 else 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        rsi = 100.0 if avg_loss == 0 else 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+    return float(rsi)
+
+
 def generate_rsi_signal(df: pd.DataFrame, period: int = 14) -> str:
     """
-    生成 RSI 信号
-    
+    生成 RSI 信号（Wilder 平滑，与 core_lib.indicators.calc_rsi 一致）
+
     Returns:
         'buy', 'sell', or 'neutral'
     """
-    if len(df) < period:
+    if len(df) < period + 1:
         return 'neutral'
-    
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    
-    current_rsi = rsi.iloc[-1]
-    
+
+    closes = df['close'].astype(float).tolist()
+    current_rsi = None
+    try:
+        # Prefer the canonical implementation when core_lib is importable.
+        from core_lib.indicators import calc_rsi
+        rsi_list = calc_rsi(closes, period)
+        for v in reversed(rsi_list):
+            if v is not None:
+                current_rsi = v
+                break
+    except Exception:
+        current_rsi = _wilder_rsi_last(closes, period)
+
+    if current_rsi is None:
+        return 'neutral'
+
     if current_rsi < 30:
         return 'buy'
     elif current_rsi > 70:
