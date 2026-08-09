@@ -21,13 +21,21 @@ class MarketIntelligence:
             resp = self.client.get_json(url, timeout=15)
             if isinstance(resp, dict) and "error" in resp:
                 return [resp]
+            # CoinGecko /exchanges/derivatives 返回 {"data": [...], ...}；
+            # 个别版本或代理可能直接返回列表。两种形状都兼容，避免对 dict 切片触发 TypeError。
+            if isinstance(resp, dict):
+                items = resp.get("data", [])
+            elif isinstance(resp, list):
+                items = resp
+            else:
+                items = []
             return [{
                 "exchange": d.get("name"),
                 "open_interest_btc": d.get("open_interest_btc"),
                 "trade_volume_24h_btc": d.get("trade_volume_24h_btc"),
                 "number_of_perpetual_pairs": d.get("number_of_perpetual_pairs"),
                 "derivatives_url": d.get("url")
-            } for d in resp[:15]]
+            } for d in items[:15]]
         except Exception as e:
             return [{"error": str(e)}]
 

@@ -435,16 +435,7 @@ class NarrativeScorer:
 
         # ── 2. 增长速率 ──────────────────────────────
         hist = self._history[narrative]
-        if len(hist) >= 2:
-            current = hist[-1]
-            previous = hist[-2] if len(hist) >= 2 else current
-            growth = (current - previous) / max(previous, 1) if previous > 0 else 0.0
-        elif len(hist) >= 7:
-            current = hist[-1]
-            week_ago = hist[-7]
-            growth = (current - week_ago) / max(week_ago, 1) if week_ago > 0 else 0.0
-        else:
-            growth = 0.0
+        growth = self._compute_growth(hist)
 
         # ── 3. 社区情绪 ───────────────────────────────
         rd_scores = [p['score'] for p in rd_posts
@@ -488,6 +479,26 @@ class NarrativeScorer:
         else:               trend = 'stable'
 
         return heat, signal, mentions, sentiment, trend
+
+    def _compute_growth(self, hist: List[int]) -> float:
+        """周环比增长速率。
+
+        优先用 7 点前（约一周）的历史做周度对比以获得更稳健的增长信号；
+        历史不足 7 点时退化为相邻两点环比；不足 2 点返回 0。
+
+        修复：原实现写成 `if len>=2 ... elif len>=7`，`>=7` 分支因 `>=2`
+        分支恒先命中而永远不可达，导致周度增长信号从未启用，始终只做
+        相邻两点环比。这里调整为优先周度对比的正确优先级。
+        """
+        if len(hist) >= 7:
+            current = hist[-1]
+            week_ago = hist[-7]
+            return (current - week_ago) / max(week_ago, 1) if week_ago > 0 else 0.0
+        if len(hist) >= 2:
+            current = hist[-1]
+            previous = hist[-2]
+            return (current - previous) / max(previous, 1) if previous > 0 else 0.0
+        return 0.0
 
     def get_top_assets(self, narrative: str) -> List[str]:
         """获取叙事相关的热门代币"""
