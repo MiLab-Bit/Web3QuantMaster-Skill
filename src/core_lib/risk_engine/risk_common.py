@@ -57,7 +57,7 @@ def garch11_fit(returns: np.ndarray,
     """
     拟合 GARCH(1,1):  σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}
 
-    使用最大似然估计（BFGS 优化，纯 numpy 实现）
+    最大似然估计（L-BFGS-B 有界优化；无 scipy 时回退到正确有界坐标下降）。
     参数约束：ω > 0, α ≥ 0, β ≥ 0, α + β < 1
 
     返回: (GARCHParams, sigma_conditional)
@@ -73,61 +73,43 @@ def garch11_fit(returns: np.ndarray,
     if n < 30:
         raise ValueError(f"GARCH 拟合需要 ≥30 个数据点，当前: {n}")
 
-    long_var = np.var(r)
-    omega0 = long_var * 0.05
-    alpha0 = 0.08
-    beta0 = 0.90
-    theta0 = np.array([omega0, alpha0, beta0])
+    long_var = float(np.var(r))
+    # 样本方差作为 ω 的合理上界：无条件方差 ω/(1-α-β) ≈ long_var，故 ω 应 ≤ long_var
+    omega_ub = max(long_var, 1e-8)
+    theta0 = np.array([long_var * 0.05, 0.08, 0.90])
 
-    def _objective(theta):
+    bounds = [(1e-10, omega_ub), (1e-8, 0.999), (1e-8, 0.999)]
+
+    def _neg_loglik(theta):
         omega, alpha, beta = theta
-        if omega <= 0 or alpha < 0 or beta < 0 or alpha + beta >= 1:
+        if omega <= 0 or alpha < 0 or beta < 0 or alpha + beta >= 1.0:
             return 1e12
-        sigma2 = np.zeros(n)
+        sigma2 = np.empty(n)
         sigma2[0] = long_var
         for t in range(1, n):
-            sigma2[t] = omega + alpha * r[t-1]**2 + beta * sigma2[t-1]
+            sigma2[t] = omega + alpha * r[t - 1] ** 2 + beta * sigma2[t - 1]
         sigma2 = np.maximum(sigma2, 1e-12)
-        ll = -0.5 * (np.log(2 * np.pi) + np.log(sigma2) + r**2 / sigma2)
-        return -np.sum(ll)
+        ll = -0.5 * (np.log(2 * np.pi) + np.log(sigma2) + r ** 2 / sigma2)
+        return -float(np.sum(ll))
 
-    theta = theta0.copy()
-    hessian = np.eye(3) * 0.001
-    for iteration in range(max_iter):
-        grad = np.zeros(3)
-        old_obj = _objective(theta)
+    # 主路径：scipy L-BFGS-B（有界、稳健的 MLE）
+    try:
+        from scipy.optimize import minimize
+        res = minimize(
+            _neg_loglik, theta0, method="L-BFGS-B", bounds=bounds,
+            options={"maxiter": max_iter, "ftol": tol},
+        )
+        theta = np.asarray(res.x, dtype=float)
+    except ImportError:
+        theta = _garch11_fit_fallback(_neg_loglik, theta0, bounds, max_iter, tol)
 
-        eps = 1e-7
-        for i in range(3):
-            theta_plus = theta.copy()
-            theta_plus[i] += eps
-            grad[i] = (_objective(theta_plus) - old_obj) / eps
-
-        theta_new = theta - np.linalg.solve(hessian + np.eye(3) * 1e-6, grad)
-        theta_new[0] = max(theta_new[0], 1e-10)
-        theta_new[1] = max(theta_new[1], 0)
-        theta_new[2] = max(theta_new[2], 0)
-        alpha_beta_sum = theta_new[1] + theta_new[2]
-        if alpha_beta_sum >= 0.9999:
-            theta_new[2] = 0.9999 - theta_new[1]
-        theta_new[2] = max(theta_new[2], 0)
-
-        new_obj = _objective(theta_new)
-        if abs(old_obj - new_obj) < tol * (1 + abs(old_obj)):
-            theta = theta_new
-            break
-        if new_obj > old_obj * 10:
-            break
-
-        delta = theta_new - theta
-        grad_change = grad - np.dot(hessian, delta)
-        denom = np.dot(delta, grad_change)
-        if abs(denom) > 1e-12:
-            hessian += np.outer(grad_change, grad_change) / denom \
-                     - np.outer(np.dot(hessian, delta), np.dot(hessian, delta)) / np.dot(delta, np.dot(hessian, delta))
-        theta = theta_new
-
-    omega, alpha, beta = theta
+    omega, alpha, beta = float(theta[0]), float(theta[1]), float(theta[2])
+    # 收敛后强制有效性
+    omega = max(omega, 1e-10)
+    alpha = max(alpha, 0.0)
+    beta = max(beta, 0.0)
+    if alpha + beta >= 0.9999:
+        beta = max(0.9999 - alpha, 0.0)
     persistence = alpha + beta
     halflife = math.log(0.5) / math.log(persistence) if persistence < 1 else float('inf')
 
@@ -139,10 +121,42 @@ def garch11_fit(returns: np.ndarray,
     sigma2 = np.zeros(n)
     sigma2[0] = long_var
     for t in range(1, n):
-        sigma2[t] = omega + alpha * r[t-1]**2 + beta * sigma2[t-1]
+        sigma2[t] = omega + alpha * r[t - 1] ** 2 + beta * sigma2[t - 1]
     sigma_conditional = np.sqrt(np.maximum(sigma2, 1e-12))
 
     return params, sigma_conditional
+
+
+def _garch11_fit_fallback(neg_loglik, theta0, bounds, max_iter, tol):
+    """无 scipy 时的正确有界坐标下降（带回溯线搜索），不会因巨型步长发散。"""
+    theta = theta0.copy().astype(float)
+    f = neg_loglik(theta)
+    for _ in range(max_iter):
+        f_old = f
+        improved = False
+        for i in range(3):
+            eps = 1e-7
+            tp = theta.copy(); tp[i] += eps
+            tn = theta.copy(); tn[i] -= eps
+            g = (neg_loglik(tp) - neg_loglik(tn)) / (2 * eps)
+            lr = 1.0
+            for _ls in range(40):
+                cand = theta.copy()
+                cand[i] = cand[i] - lr * g
+                lo, hi = bounds[i]
+                cand[i] = max(cand[i], lo)
+                if hi is not None:
+                    cand[i] = min(cand[i], hi)
+                # α+β 约束由 neg_loglik 的惩罚项自动处理
+                fc = neg_loglik(cand)
+                if fc < f - 1e-12:
+                    theta, f = cand, fc
+                    improved = True
+                    break
+                lr *= 0.5
+        if not improved or abs(f_old - f) < tol * (1 + abs(f_old)):
+            break
+    return theta
 
 
 def garch11_forecast(params: GARCHParams,
