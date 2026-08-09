@@ -189,23 +189,26 @@ def calc_macd(
         else:
             macd_line.append(None)
 
-    # Signal line = EMA of MACD line (only on valid values)
-    valid_macd = [(v if v is not None else 0.0) for v in macd_line]
-    signal_raw = calc_ema(
-        [v for v in valid_macd if not (v == 0.0 and macd_line[0] is None)],
-        signal,
-    )
+    # Signal line = EMA(signal) of the MACD line, computed ONLY over the
+    # valid (non-None) portion. Filling the warm-up gap with 0.0 before the
+    # EMA biases the seed, and filtering by `v == 0.0` can wrongly drop a
+    # genuine zero crossing in the MACD line and misalign the output.
+    n = len(prices)
+    first_valid = next((i for i, v in enumerate(macd_line) if v is not None), n)
+    valid_macd = [v for v in macd_line[first_valid:] if v is not None]
+    signal_raw = calc_ema(valid_macd, signal) if valid_macd else []
 
-    # Build properly aligned signal line
-    # Signal line starts at index (slow_period - 1) + (signal_period - 1)
-    start_offset = (slow - 1) + (signal - 1)
-    signal_line: List[Optional[float]] = [None] * min(start_offset, len(prices))
+    # MACD line becomes valid at `first_valid`; `signal_raw` (the EMA of the
+    # valid MACD slice) already carries its own (signal-1) leading None warm-up,
+    # so it simply aligns at `first_valid` and becomes valid at first_valid+(signal-1).
+    sig_start = first_valid if signal_raw else n
+    signal_line: List[Optional[float]] = [None] * sig_start
     signal_line.extend(signal_raw)
     # Trim or pad to match prices length
-    if len(signal_line) < len(prices):
-        signal_line.extend([None] * (len(prices) - len(signal_line)))
-    elif len(signal_line) > len(prices):
-        signal_line = signal_line[:len(prices)]
+    if len(signal_line) < n:
+        signal_line.extend([None] * (n - len(signal_line)))
+    elif len(signal_line) > n:
+        signal_line = signal_line[:n]
 
     # Histogram = MACD - Signal
     histogram: List[Optional[float]] = []
@@ -351,10 +354,17 @@ def calc_adx(
             abs(lows[i] - closes[i - 1]),
         ))
 
-    smooth_plus = sum(plus_dm[:period])
-    smooth_minus = sum(minus_dm[:period])
-    smooth_tr = sum(tr_list[:period])
+    # Wilder's smoothing seed = average of the first (period-1) DM/TR values.
+    # The recurrence below then folds in plus_dm[period] at bar `period` to
+    # produce the first smoothed value. The previous code used sum(...) with no
+    # /(period-1) division (and a stray 0 placeholder at index 0), which biased
+    # every subsequent smoothed +DM/-DM/TR value.
+    p1 = period - 1
+    smooth_plus = sum(plus_dm[1:period]) / p1 if p1 > 0 else 0.0
+    smooth_minus = sum(minus_dm[1:period]) / p1 if p1 > 0 else 0.0
+    smooth_tr = sum(tr_list[1:period]) / p1 if p1 > 0 else 0.0
 
+    dx_values: List[float] = []
     for i in range(period, n):
         smooth_plus = (smooth_plus * (period - 1) + plus_dm[i]) / period
         smooth_minus = (smooth_minus * (period - 1) + minus_dm[i]) / period
@@ -367,11 +377,16 @@ def calc_adx(
         minus_di[i] = mdi
 
         dx = 100.0 * abs(pdi - mdi) / (pdi + mdi) if (pdi + mdi) > 0 else 0.0
+        dx_values.append(dx)
 
-        if i == period:
-            adx[i] = dx
-        else:
-            adx[i] = (adx[i - 1] * (period - 1) + dx) / period if adx[i - 1] is not None else dx
+    # ADX = Wilder-smoothed DX. The first ADX value is the average of the
+    # first `period` DX values, which lands at bar (2*period - 1).
+    if len(dx_values) >= period:
+        adx_first_bar = 2 * period - 1
+        adx[adx_first_bar] = sum(dx_values[:period]) / period
+        for k in range(period, len(dx_values)):
+            bar = period + k
+            adx[bar] = (adx[bar - 1] * (period - 1) + dx_values[k]) / period
 
     return {"adx": adx, "plus_di": plus_di, "minus_di": minus_di}
 

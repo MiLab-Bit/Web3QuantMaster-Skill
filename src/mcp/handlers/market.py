@@ -154,14 +154,6 @@ def available_exchanges() -> Dict[str, Any]:
         "truncated": len(exchanges) > 50,
         "has_ccxt": adapter._has_ccxt,
     }
-                "symbol": symbol,
-                "long_ratio": f"{long_ratio:.1f}%",
-                "short_ratio": f"{short_ratio:.1f}%",
-                "signal": signal,
-            }
-        return {"status": "error", "error": str(data)}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
 
 
 # ── Price Alert ──────────────────────────────────────────────────────────────
