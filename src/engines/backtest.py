@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import math
+import inspect
 import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
@@ -39,6 +40,29 @@ from core_lib.config import (
 from core_lib.strategy_base import list_strategies, get_strategy
 
 logger = logging.getLogger(__name__)
+
+
+def _filter_accepted_params(fn, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep only the kwargs ``fn`` actually accepts by signature.
+
+    Strips engine-level params (atr_stop_mult / stop_loss_pct, applied to the
+    engine elsewhere) and any other unknown kwarg so registered strategy
+    functions never receive an unexpected keyword argument. Falls back to
+    returning ``params`` unchanged if the signature cannot be introspected.
+    """
+    if not params:
+        return {}
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return dict(params)
+    accepted = set(sig.parameters.keys())
+    # Always drop the engine-level stop-loss knobs even if a strategy happens
+    # to declare a same-named parameter (they are consumed by the engine).
+    accepted.discard("atr_stop_mult")
+    accepted.discard("stop_loss_pct")
+    return {k: v for k, v in params.items() if k in accepted}
+
 
 # Cache to avoid repeated imports
 _strategies_loaded = False
@@ -270,6 +294,16 @@ class BacktestEngine:
         params = params or {}
         self._reset()
 
+        # ── Apply engine-level stop-loss params (consumed by the backtest
+        #    engine, NOT by the strategy function). Optimizers (e.g.
+        #    optimize.py) pass atr_stop_mult / stop_loss_pct inside `params`;
+        #    if these leaked into the strategy call they would raise
+        #    "unexpected keyword argument" and crash the whole backtest.
+        if "atr_stop_mult" in params:
+            self.atr_stop_mult = float(params["atr_stop_mult"])
+        if "stop_loss_pct" in params:
+            self.stop_loss_pct = float(params["stop_loss_pct"])
+
         # Get strategy signals
         signals_fn = get_strategy(self.strategy)
 
@@ -292,7 +326,9 @@ class BacktestEngine:
             raw_signals = self._calculate_signals(candles, adapted_params)
         else:
             try:
-                raw_signals = signals_fn(candles, **params)
+                raw_signals = signals_fn(
+                    candles, **_filter_accepted_params(signals_fn, params)
+                )
             except Exception as e:
                 logger.error(
                     "Strategy '%s' raised an error: %s", self.strategy, e, exc_info=True,

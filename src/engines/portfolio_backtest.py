@@ -110,7 +110,14 @@ def run_portfolio_backtest(
         eq = equity_curves.get(symbol)
         if eq is not None:
             n = len(eq)
-            portfolio_eq[:n] += eq
+            if n < max_len:
+                # Forward-fill the last known equity out to the portfolio
+                # horizon. Without this, an asset with a shorter history drops
+                # to a 0 contribution after its last bar, causing a spurious
+                # step-down in the combined equity curve and a wrong total
+                # return (it would ignore that asset's late-period PnL entirely).
+                eq = np.concatenate([eq, np.full(max_len - n, eq[-1])])
+            portfolio_eq += eq
 
     # Portfolio metrics
     start_eq = portfolio_eq[0] if portfolio_eq[0] > 0 else sum(weights.values()) * initial_balance

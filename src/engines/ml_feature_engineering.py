@@ -53,8 +53,8 @@ class DFSFeatureSet:
     n_samples: int = 0
     n_features: int = 0
 
-    @property
     def top_features(self, n: int = 20) -> List[str]:
+        """Top-``n`` features ranked by absolute IC (requires ``ic_scores``)."""
         if self.ic_scores is None:
             return self.feature_names[:n]
         sorted_features = sorted(
