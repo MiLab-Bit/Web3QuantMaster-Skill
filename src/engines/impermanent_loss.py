@@ -60,23 +60,26 @@ def calc_impermanent_loss(
     entry_pair_price = entry_price_a / max(entry_price_b, 1e-8)
     current_pair_price = current_price_a / max(current_price_b, 1e-8)
     price_ratio = current_pair_price / max(entry_pair_price, 1e-8)
+    price_ratio = max(price_ratio, 0.0)  # guard against negative (bad/zero prices)
 
-    # Uniswap V2 IL formula
+    # Uniswap V2 IL formula: IL = 2*sqrt(r)/(1+r) - 1  (LP value / HODL value - 1)
     sqrt_r = math.sqrt(price_ratio)
     lp_value_ratio = 2 * sqrt_r / (1 + price_ratio)
-    il_pct = (lp_value_ratio - 1.0) * 100  # negative = loss
+    il_pct = (lp_value_ratio - 1.0) * 100  # negative = LP underperforms HODL
 
-    # HODL return: equally weighted at entry
-    hodl_pct = ((price_ratio - 1.0) / 2.0) * 100  # 50/50 portfolio return
+    # HODL return: 50/50 basket absolute return vs entry
+    hodl_pct = ((price_ratio - 1.0) / 2.0) * 100
 
-    # Fee income estimate
+    # Fee income estimate (as % of principal over the holding period)
     fee_period = days / 365
-    fees_earned = fee_apr * fee_period * 100
+    fee_fraction = fee_apr * fee_period
+    fees_earned = fee_fraction * 100
 
-    # LP total return
-    lp_return = il_pct + fees_earned
+    # Absolute LP return including fees:
+    #   LP_value = HODL_value * (1 + IL) * (1 + fees)  =>  return = sqrt(r)*(1+fees) - 1
+    lp_return = (sqrt_r * (1.0 + fee_fraction) - 1.0) * 100
 
-    # Outperformance
+    # Outperformance = absolute LP return - absolute HODL return (percentage points)
     outperformance = lp_return - hodl_pct
 
     # Recommendation
@@ -110,7 +113,7 @@ def calc_il_breakeven(price_change_pct: float) -> float:
         Required annual fee APR (as decimal) to break even
     """
     r = 1.0 + price_change_pct / 100.0
-    sqrt_r = math.sqrt(r)
+    sqrt_r = math.sqrt(max(r, 0.0))  # guard against r < 0 (price_change < -100%)
     lp_ratio = 2 * sqrt_r / (1 + r)
     il_pct = abs(lp_ratio - 1.0) * 100
 

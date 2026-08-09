@@ -245,6 +245,28 @@ def get_live_prices(symbols: List[str]) -> Dict[str, Dict[str, Optional[float]]]
 # Correlation
 # =============================================================================
 
+def _corr_pair(x: List[float], y: List[float]) -> float:
+    """Pearson correlation of two equal-length return series (pure python).
+
+    Returns 0.0 when either series has (near-)zero variance — including the
+    float-rounding case where n*sum_x2 - sum_x**2 goes slightly negative, which
+    would otherwise make math.sqrt() raise ValueError / produce NaN.
+    """
+    n = len(x)
+    if n < 2:
+        return 0.0
+    sum_x = sum(x)
+    sum_y = sum(y)
+    sum_xy = sum(a * b for a, b in zip(x, y))
+    sum_x2 = sum(a * a for a in x)
+    sum_y2 = sum(b * b for b in y)
+    num = n * sum_xy - sum_x * sum_y
+    denom_sq = (n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)
+    if denom_sq <= 0:
+        return 0.0
+    return num / math.sqrt(denom_sq)
+
+
 def calc_correlation(symbols: List[str], days: int = 90):
     """Calculate return correlations between symbols."""
     closes: Dict[str, List[float]] = {}
@@ -284,14 +306,10 @@ def calc_correlation(symbols: List[str], days: int = 90):
                 y = returns[s2][-min_len:]
                 if HAS_NUMPY:
                     r = float(np.corrcoef(x, y)[0, 1])
+                    if not math.isfinite(r):
+                        r = 0.0
                 else:
-                    n = len(x)
-                    sum_x = sum(x); sum_y = sum(y)
-                    sum_xy = sum(a * b for a, b in zip(x, y))
-                    sum_x2 = sum(a ** 2 for a in x)
-                    sum_y2 = sum(b ** 2 for b in y)
-                    denom = math.sqrt((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2))
-                    r = (n * sum_xy - sum_x * sum_y) / denom if denom != 0 else 0
+                    r = _corr_pair(x, y)
                 corr[(s1, s2)] = r
                 corr[(s2, s1)] = r
             elif i == j:
