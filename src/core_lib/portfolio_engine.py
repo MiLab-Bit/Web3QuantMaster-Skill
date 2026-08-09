@@ -24,9 +24,16 @@
 - Ledoit, O. & Wolf, M. (2004). Honey, I Shrunk the Sample Covariance Matrix
 - Black, F. & Litterman, R. (1992). Global Portfolio Optimization
 """
+import math
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, field
+
+try:
+    from scipy.optimize import minimize as _sp_minimize
+    HAS_SCIPY = True
+except Exception:
+    HAS_SCIPY = False
 
 
 @dataclass
@@ -111,24 +118,64 @@ class PortfolioOptimizer:
         sharpe = (ret - self.risk_free_rate) / vol if vol > 1e-10 else 0
         return ret, vol, sharpe
 
+    # ── scipy-backed long-only solvers (fallback to clip when unavailable) ──
+    def _long_only_min_variance(self) -> Optional[np.ndarray]:
+        """True long-only global minimum-variance weights via QP (SLSQP)."""
+        if not HAS_SCIPY:
+            return None
+        n = self.N
+        cov = self.cov
+        cons = ({'type': 'eq', 'fun': lambda w: float(np.sum(w)) - 1.0},)
+        bounds = [(0.0, 1.0)] * n
+        w0 = np.ones(n) / n
+        res = _sp_minimize(lambda w: float(w @ cov @ w), w0,
+                           method='SLSQP', bounds=bounds, constraints=cons)
+        if not getattr(res, 'success', False):
+            return None
+        w = np.clip(res.x, 0.0, 1.0)
+        s = w.sum()
+        return w / s if s > 0 else None
+
+    def _long_only_max_sharpe(self) -> Optional[np.ndarray]:
+        """True long-only maximum-Sharpe weights via SLSQP."""
+        if not HAS_SCIPY:
+            return None
+        n = self.N
+        cov = self.cov
+        mu = self.mu
+        rf = self.risk_free_rate
+        cons = ({'type': 'eq', 'fun': lambda w: float(np.sum(w)) - 1.0},)
+        bounds = [(0.0, 1.0)] * n
+        w0 = np.ones(n) / n
+
+        def _neg_sharpe(w):
+            ret = float(w @ mu)
+            vol = max(float(w @ cov @ w), 1e-12) ** 0.5
+            return -(ret - rf) / vol
+
+        res = _sp_minimize(_neg_sharpe, w0, method='SLSQP',
+                           bounds=bounds, constraints=cons)
+        if not getattr(res, 'success', False):
+            return None
+        w = np.clip(res.x, 0.0, 1.0)
+        s = w.sum()
+        return w / s if s > 0 else None
+
     def max_sharpe(self, bounds: Tuple[float, float] = (0.0, 1.0)) -> OptimizationResult:
         """
-        最大夏普比率组合。
-        使用闭式解（无约束时）或数值优化（有约束时）。
+        最大夏普比率组合（仅做多，长期约束最优）。
         """
-        inv_cov = np.linalg.inv(self.cov)
-        excess = self.mu - self.risk_free_rate
-        
-        # 无约束闭式解
-        w_raw = inv_cov @ excess
-        w_raw = np.maximum(w_raw, 0)  # 仅做多
-        
-        w = w_raw / w_raw.sum() if w_raw.sum() > 0 else np.ones(self.N) / self.N
-        
-        # 约束裁剪
-        w = np.clip(w, bounds[0], bounds[1])
-        w /= w.sum()
-        
+        w = self._long_only_max_sharpe() if HAS_SCIPY else None
+        if w is None:
+            # Fallback: 无约束切线闭式解 + 仅做多裁剪
+            inv_cov = np.linalg.inv(self.cov)
+            excess = self.mu - self.risk_free_rate
+            w_raw = inv_cov @ excess
+            w_raw = np.maximum(w_raw, 0)
+            w = w_raw / w_raw.sum() if w_raw.sum() > 0 else np.ones(self.N) / self.N
+            w = np.clip(w, bounds[0], bounds[1])
+            w /= w.sum()
+
         ret, vol, sharpe = self._portfolio_stats(w)
         return OptimizationResult(
             weights=w, expected_return=ret, volatility=vol, sharpe=sharpe,
@@ -138,15 +185,18 @@ class PortfolioOptimizer:
 
     def min_variance(self, bounds: Tuple[float, float] = (0.0, 1.0)) -> OptimizationResult:
         """
-        最小方差组合。
+        最小方差组合（仅做多，长期约束最优）。
         """
-        inv_cov = np.linalg.inv(self.cov)
-        ones = np.ones(self.N)
-        w_raw = inv_cov @ ones
-        w = w_raw / w_raw.sum()
-        w = np.clip(w, bounds[0], bounds[1])
-        w /= w.sum()
-        
+        w = self._long_only_min_variance() if HAS_SCIPY else None
+        if w is None:
+            # Fallback: 无约束 GMV 闭式解 + 仅做多裁剪
+            inv_cov = np.linalg.inv(self.cov)
+            ones = np.ones(self.N)
+            w_raw = inv_cov @ ones
+            w = w_raw / w_raw.sum()
+            w = np.clip(w, bounds[0], bounds[1])
+            w /= w.sum()
+
         ret, vol, sharpe = self._portfolio_stats(w)
         return OptimizationResult(
             weights=w, expected_return=ret, volatility=vol, sharpe=sharpe,
@@ -238,46 +288,67 @@ class PortfolioOptimizer:
 
     def efficient_frontier(self, n_points: int = 50) -> Dict[str, np.ndarray]:
         """
-        计算高效前沿。
-        返回 {'returns': [], 'volatilities': [], 'sharpes': [], 'weights': (n_points, N)}
+        计算 Markowitz 高效前沿（仅风险资产、仅做多）。
+
+        使用两基金定理（two-fund theorem），使每个返回的组合 *真实* 拥有其
+        标注的目标波动率。旧实现基于切点组合的闭式解，并不追踪目标波动率
+        （对所有目标波动率都返回同一个恒定波动率），已修正。
+
+        返回 {'returns', 'volatilities', 'weights', 'target_vols',
+              'max_sharpe', 'min_variance'}
         """
         min_vol_result = self.min_variance()
         max_sharpe_result = self.max_sharpe()
-        
-        vol_min = min_vol_result.volatility * 0.8
-        vol_max = max(self.mu.max() ** 0.5 * 0.3, max_sharpe_result.volatility * 2)
-        
-        target_vols = np.linspace(vol_min, vol_max, n_points)
-        frontier_rets = []
-        frontier_vols = []
-        frontier_w = np.zeros((n_points, self.N))
-        
+
         inv_cov = np.linalg.inv(self.cov)
         ones = np.ones(self.N)
         mu = self.mu
-        
-        A = ones @ inv_cov @ ones
-        B = ones @ inv_cov @ mu
-        C = mu @ inv_cov @ mu
-        D = A * C - B ** 2
-        
+
+        A = float(ones @ inv_cov @ ones)
+        B = float(ones @ inv_cov @ mu)
+        D = A * float(mu @ inv_cov @ mu) - B ** 2
+
+        # 两基金（在 Σ 意义下正交）：
+        #   g = Σ⁻¹1 / A            —— 全局最小方差组合（方差 = 1/A）
+        #   d = Σ⁻¹μ − (B/A)Σ⁻¹1     —— 与 g 正交的前沿基金（1'd = 0, g'Σd = 0）
+        # 任意前沿组合 w(λ) = g + λ·d，方差 = 1/A + λ²·(D/A)（因 g'Σd = 0）。
+        g = inv_cov @ ones / A
+        d = inv_cov @ mu - (B / A) * (inv_cov @ ones)
+        g_var = 1.0 / A
+
+        # 可行波动率区间：从最小方差到仅做多可达的最大夏普波动率
+        # （超出该区间的前沿需要杠杆/做空，仅做多约束下无法精确命中目标波动率）
+        vol_min = max(float(min_vol_result.volatility), math.sqrt(g_var), 1e-6)
+        vol_max = max(float(max_sharpe_result.volatility), vol_min * 1.1)
+        target_vols = np.linspace(vol_min, vol_max, n_points)
+
+        frontier_rets: List[float] = []
+        frontier_vols: List[float] = []
+        frontier_w = np.zeros((n_points, self.N))
+
         for i, target_vol in enumerate(target_vols):
             target_var = target_vol ** 2
-            # 闭式解：在目标波动率下最大化收益
-            lam = np.sqrt((C - 2 * B * self.risk_free_rate + A * self.risk_free_rate ** 2) / (D * target_var)) if D > 1e-10 else 1.0
-            w_opt = inv_cov @ (ones * (C - B * self.risk_free_rate) / D * lam + mu * (A * self.risk_free_rate - B) / D * lam)
-            w_opt = np.maximum(w_opt, 0)
-            w_opt /= w_opt.sum() if w_opt.sum() > 0 else 1.0
-            
-            frontier_w[i] = w_opt
-            ret_opt, vol_opt, _ = self._portfolio_stats(w_opt)
+            disc = A * target_var - 1.0  # = A·(target_var − 1/A)
+            if disc <= 0:
+                w = g.copy()
+            else:
+                lam = math.sqrt(disc / D) if D > 1e-12 else 0.0
+                w = g + lam * d
+            w = np.maximum(w, 0.0)
+            w_sum = w.sum()
+            if w_sum > 0:
+                w = w / w_sum
+
+            frontier_w[i] = w
+            ret_opt, vol_opt, _ = self._portfolio_stats(w)
             frontier_rets.append(ret_opt)
             frontier_vols.append(vol_opt)
-        
+
         return {
             'returns': np.array(frontier_rets),
             'volatilities': np.array(frontier_vols),
             'weights': frontier_w,
+            'target_vols': target_vols,
             'max_sharpe': (max_sharpe_result.volatility, max_sharpe_result.expected_return),
             'min_variance': (min_vol_result.volatility, min_vol_result.expected_return),
         }
