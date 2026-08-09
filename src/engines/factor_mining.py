@@ -49,6 +49,7 @@ except ImportError:
 
 try:
     import numpy as np
+    from numpy.lib.stride_tricks import sliding_window_view
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
@@ -294,41 +295,49 @@ class FactorMiner:
 
         # ── 未来收益标签（用于训练） ──
         future_ret = np.zeros(len(close))
-        for i in range(len(close) - 1):
-            future_ret[i] = (close[i + 1] / close[i] - 1) * 100
+        if len(close) > 1:
+            future_ret[:-1] = (close[1:] / close[:-1] - 1) * 100
         features["future_return_1d"] = future_ret
 
         result = pd.DataFrame(features)
         return result.dropna()
 
     def _sma(self, arr: np.ndarray, window: int) -> np.ndarray:
-        out = np.full(len(arr), np.nan)
-        for i in range(window - 1, len(arr)):
-            out[i] = np.mean(arr[i - window + 1:i + 1])
+        a = np.asarray(arr, dtype=float)
+        n = len(a)
+        out = np.full(n, np.nan)
+        if n >= window:
+            out[window - 1:] = sliding_window_view(a, window).mean(axis=1)
         return out
 
     def _ema_arr(self, arr: np.ndarray, period: int) -> np.ndarray:
+        a = np.asarray(arr, dtype=float)
         alpha = 2.0 / (period + 1)
-        out = np.zeros(len(arr))
-        out[0] = arr[0]
-        for i in range(1, len(arr)):
-            out[i] = alpha * arr[i] + (1 - alpha) * out[i - 1]
-        return out
+        # pandas ewm(adjust=False) is the exact vectorized form of the
+        # recursive EMA: out[0]=a[0]; out[i]=alpha*a[i]+(1-alpha)*out[i-1].
+        return pd.Series(a).ewm(alpha=alpha, adjust=False).mean().values
 
     def _std_arr(self, arr: np.ndarray, window: int) -> np.ndarray:
-        out = np.full(len(arr), np.nan)
-        for i in range(window - 1, len(arr)):
-            out[i] = np.std(arr[i - window + 1:i + 1])
+        a = np.asarray(arr, dtype=float)
+        n = len(a)
+        out = np.full(n, np.nan)
+        if n >= window:
+            out[window - 1:] = sliding_window_view(a, window).std(axis=1)  # ddof=0
         return out
 
     def _rsi_arr(self, arr: np.ndarray, period: int = 14) -> np.ndarray:
-        deltas = np.diff(arr, prepend=arr[0])
-        gains = np.where(deltas > 0, deltas, 0)
-        losses = np.where(deltas < 0, -deltas, 0)
-        out = np.full(len(arr), 50.0)
-        avg_gain = np.mean(gains[:period]) if period <= len(gains) else np.mean(gains)
-        avg_loss = np.mean(losses[:period]) if period <= len(losses) else np.mean(losses)
-        for i in range(period, len(arr)):
+        a = np.asarray(arr, dtype=float)
+        n = len(a)
+        deltas = np.diff(a, prepend=a[0])
+        gains = np.where(deltas > 0, deltas, 0.0)
+        losses = np.where(deltas < 0, -deltas, 0.0)
+        out = np.full(n, 50.0)
+        if n < period:
+            return out
+        # Wilder smoothing seed = mean of first `period` gains/losses.
+        avg_gain = float(np.mean(gains[:period]))
+        avg_loss = float(np.mean(losses[:period]))
+        for i in range(period, n):
             avg_gain = (avg_gain * (period - 1) + gains[i]) / period
             avg_loss = (avg_loss * (period - 1) + losses[i]) / period
             rs = avg_gain / (avg_loss + 1e-10)
@@ -336,18 +345,27 @@ class FactorMiner:
         return out
 
     def _roc_arr(self, arr: np.ndarray, period: int = 10) -> np.ndarray:
-        out = np.full(len(arr), 0.0)
-        for i in range(period, len(arr)):
-            out[i] = (arr[i] / (arr[i - period] + 1e-10) - 1) * 100
+        a = np.asarray(arr, dtype=float)
+        n = len(a)
+        out = np.full(n, 0.0)
+        if n > period:
+            out[period:] = (a[period:] / (a[:-period] + 1e-10) - 1) * 100
         return out
 
     def _atr_arr(self, high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> np.ndarray:
-        tr = np.zeros(len(high))
-        tr[0] = high[0] - low[0]
-        for i in range(1, len(high)):
-            tr[i] = max(high[i] - low[i],
-                        abs(high[i] - close[i - 1]),
-                        abs(low[i] - close[i - 1]))
+        h = np.asarray(high, dtype=float)
+        l = np.asarray(low, dtype=float)
+        c = np.asarray(close, dtype=float)
+        n = len(h)
+        tr = np.zeros(n)
+        if n > 0:
+            tr[0] = h[0] - l[0]
+        if n > 1:
+            tr[1:] = np.maximum.reduce([
+                (h[1:] - l[1:]),
+                np.abs(h[1:] - c[:-1]),
+                np.abs(l[1:] - c[:-1]),
+            ])
         return self._sma(tr, period)
 
     def _bollinger_bands(self, arr: np.ndarray, period: int = 20, std_mult: float = 2.0):
