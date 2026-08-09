@@ -16,6 +16,7 @@ import sys
 import os
 import json
 import time
+import concurrent.futures
 import requests
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
@@ -39,6 +40,21 @@ TENDERLY_API = "https://api.tenderly.co/api/v1"
 ETH_RPC = os.getenv("ETH_RPC", "https://eth.llamarpc.com")
 
 GAS_ORACLE = "https://api.ethgwei.com/gas"
+
+
+def _http_get_json(url: str, timeout: int = 10):
+    """GET ``url`` and return parsed JSON, or ``None`` on any failure.
+
+    A single shared helper so network access is easy to mock in tests and so
+    callers can fire several of these concurrently via a thread pool.
+    """
+    try:
+        resp = requests.get(url, timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
 
 
 # ══════════════════════════════════════════════
@@ -197,20 +213,15 @@ class FlashbotsClient:
             "risk_factors": risk_factors,
             "value_eth": value_eth,
             "gas_price_gwei": gas_price,
-            "avg_gas_gwei": self._get_avg_gas_price(),
+            "avg_gas_gwei": avg_gas,
             "recommendation": self._get_recommendation(risk_score)
         }
 
     def _get_avg_gas_price(self) -> float:
         """获取当前平均 Gas 价格（gwei）"""
-        try:
-            # 使用公开 Gas Oracle
-            resp = requests.get("https://api.ethgwei.com/gas-prices", timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                return float(data.get("standard", 30))
-        except Exception:
-            pass
+        data = _http_get_json("https://api.ethgwei.com/gas-prices", 5)
+        if data is not None:
+            return float(data.get("standard", 30))
         return 30.0  # 默认值
 
     def _score_to_level(self, score: float) -> MEVThreatLevel:
@@ -480,34 +491,30 @@ class MEVMonitor:
         MEV 区块仪表盘：显示最近含 MEV 的区块信息
         数据来源：Flashbots RPC + 公开区块浏览器
         """
-        try:
-            # Flashbots 区块数据（公开端点）
-            url = "https://relay.flashbots.net/stats"
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                return {
-                    "relay_status": "online",
-                    "latest_block": data.get("latest_block_number"),
-                    "bundle_stats": data,
-                    "source": "Flashbots Relay"
-                }
-        except Exception:
-            pass
+        flash_url = "https://relay.flashbots.net/stats"
+        gas_url = "https://api.ethgwei.com/gas-prices"
 
-        # 备用：公共 Gas 数据
-        try:
-            gas_url = "https://api.ethgwei.com/gas-prices"
-            resp = requests.get(gas_url, timeout=10)
-            if resp.status_code == 200:
-                gas_data = resp.json()
-                return {
-                    "relay_status": "limited",
-                    "gas_prices_gwei": gas_data,
-                    "recommendation": "GasOracle 数据可用，Flashbots Relay 需要 API Key"
-                }
-        except Exception:
-            pass
+        # Fetch both sources concurrently; prefer Flashbots, fall back to gas oracle.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            fut_flash = ex.submit(_http_get_json, flash_url, 10)
+            fut_gas = ex.submit(_http_get_json, gas_url, 10)
+            flash_data = fut_flash.result()
+            gas_data = fut_gas.result()
+
+        if flash_data is not None:
+            return {
+                "relay_status": "online",
+                "latest_block": flash_data.get("latest_block_number"),
+                "bundle_stats": flash_data,
+                "source": "Flashbots Relay"
+            }
+
+        if gas_data is not None:
+            return {
+                "relay_status": "limited",
+                "gas_prices_gwei": gas_data,
+                "recommendation": "GasOracle 数据可用，Flashbots Relay 需要 API Key"
+            }
 
         return {
             "relay_status": "offline",

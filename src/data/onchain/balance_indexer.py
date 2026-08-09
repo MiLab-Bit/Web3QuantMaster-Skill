@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+import concurrent.futures
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
@@ -151,11 +152,33 @@ class BalanceIndexer:
             return self._cache[addr]
 
         tokens_to_check = tokens or self.COMMON_TOKENS
-        eth_bal = self.get_eth_balance(address)
+
+        # Concurrent I/O: the native-ETH call and the per-token balance calls are
+        # independent HTTP requests, so run them in parallel instead of sequentially.
+        # The underlying get_eth_balance / get_token_balance methods are unchanged,
+        # so the returned values are identical — only the wall-clock time shrinks.
+        def _fetch_eth() -> float:
+            return self.get_eth_balance(address)
+
+        def _fetch_tok(tok):
+            token_addr, symbol, decimals = tok
+            return tok, self.get_token_balance(address, token_addr, decimals)
+
+        token_results: Dict[tuple, float] = {}
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(16, len(tokens_to_check) + 1)
+        ) as ex:
+            fut_eth = ex.submit(_fetch_eth)
+            fut_tok = {tok: ex.submit(_fetch_tok, tok) for tok in tokens_to_check}
+            eth_bal = fut_eth.result()
+            for tok, fut in fut_tok.items():
+                _, bal = fut.result()
+                token_results[tok] = bal
 
         token_balances = []
-        for token_addr, symbol, decimals in tokens_to_check:
-            bal = self.get_token_balance(address, token_addr, decimals)
+        for tok in tokens_to_check:
+            token_addr, symbol, decimals = tok
+            bal = token_results[tok]
             token_balances.append(TokenBalance(
                 token_address=token_addr,
                 token_symbol=symbol,
@@ -180,10 +203,15 @@ class BalanceIndexer:
     def get_balances_batch(
         self, addresses: List[str], tokens: Optional[List[tuple]] = None,
     ) -> Dict[str, WalletBalances]:
-        """Get balances for multiple wallets."""
-        results = {}
-        for addr in addresses:
-            results[addr] = self.get_balances(addr, tokens=tokens)
+        """Get balances for multiple wallets concurrently."""
+        results: Dict[str, WalletBalances] = {}
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(8, max(1, len(addresses)))
+        ) as ex:
+            fut_map = {addr: ex.submit(self.get_balances, addr, tokens)
+                       for addr in addresses}
+            for addr, fut in fut_map.items():
+                results[addr] = fut.result()
         return results
 
     def get_token_holders(
