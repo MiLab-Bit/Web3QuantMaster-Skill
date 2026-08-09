@@ -348,16 +348,16 @@ class BacktestEngine:
             if signal > 0 and self.position <= 0:
                 # Close any existing short first, then open long
                 if self.position < 0:
-                    self._execute_cover(price, slippage, bar_time)
-                self._execute_buy(price, slippage, bar_time)
+                    self._execute_cover(price, slippage, bar_time, i)
+                self._execute_buy(price, slippage, bar_time, i)
 
             elif signal < 0 and self.position >= 0:
                 # Close any existing long first
                 if self.position > 0:
-                    self._execute_sell(price, slippage, bar_time)
+                    self._execute_sell(price, slippage, bar_time, i)
                 # Open short (if enabled) or just stay flat
                 if self.allow_short and self.position == 0:
-                    self._execute_short(price, slippage, bar_time)
+                    self._execute_short(price, slippage, bar_time, i)
 
             # ── ATR trailing stop ──
             if self.atr_stop_mult:
@@ -365,12 +365,12 @@ class BacktestEngine:
                     stop_price = self.entry_price - self.atr_stop_mult * atr
                     if price < stop_price:
                         logger.debug("Long stop at bar %d: %.2f < %.2f", i, price, stop_price)
-                        self._execute_sell(price, slippage, bar_time)
+                        self._execute_sell(price, slippage, bar_time, i)
                 elif self.position < 0:
                     stop_price = self.short_entry_price + self.atr_stop_mult * atr
                     if price > stop_price:
                         logger.debug("Short stop at bar %d: %.2f > %.2f", i, price, stop_price)
-                        self._execute_cover(price, slippage, bar_time)
+                        self._execute_cover(price, slippage, bar_time, i)
 
             # ── Fixed stop-loss (percentage-based) ──
             if self.stop_loss_pct:
@@ -378,12 +378,12 @@ class BacktestEngine:
                     loss_pct = (self.entry_price - price) / self.entry_price
                     if loss_pct >= self.stop_loss_pct:
                         logger.debug("Long fixed SL at bar %d: -%.2f%%", i, loss_pct * 100)
-                        self._execute_sell(price, slippage, bar_time)
+                        self._execute_sell(price, slippage, bar_time, i)
                 elif self.position < 0:
                     loss_pct = (price - self.short_entry_price) / self.short_entry_price
                     if loss_pct >= self.stop_loss_pct:
                         logger.debug("Short fixed SL at bar %d: -%.2f%%", i, loss_pct * 100)
-                        self._execute_cover(price, slippage, bar_time)
+                        self._execute_cover(price, slippage, bar_time, i)
 
             # Record equity (long + short + cash)
             unrealized = 0.0
@@ -415,6 +415,8 @@ class BacktestEngine:
         self.position = 0.0            # positive=long size, negative=short size
         self.entry_price = 0.0         # long entry (avg)
         self.short_entry_price = 0.0   # short entry (avg)
+        self.entry_idx = -1            # bar index where current long was opened
+        self.short_entry_idx = -1      # bar index where current short was opened
         self._short_margin = 0.0       # margin locked for short position
         self.trades: List[Dict[str, Any]] = []
         self.equity_curve: List[float] = []
@@ -537,7 +539,7 @@ class BacktestEngine:
         scale = self.target_volatility / max(actual_vol, 0.001)
         return min(self.position_size, scale * self.position_size)
 
-    def _execute_buy(self, price: float, slippage: float, time: Any):
+    def _execute_buy(self, price: float, slippage: float, time: Any, bar_idx: int = -1):
         """Execute a buy (long entry) order with position sizing.
 
         Uses `self.position_size` fraction of current balance for allocation.
@@ -547,11 +549,16 @@ class BacktestEngine:
             price: Current market price (close)
             slippage: Slippage fraction (e.g. 0.005), added to price
             time: Bar timestamp or index for trade record
+            bar_idx: Integer index of the current bar (for attribution)
         """
         exec_price = price * (1.0 + slippage)
         allocation = self.balance * self.position_size
         cost = allocation * (1.0 - self.fee_rate)
         new_position = cost / exec_price
+
+        # Track the bar index where this long position was opened (first entry wins)
+        if self.position <= 0:
+            self.entry_idx = bar_idx
 
         self.position += new_position
         self.entry_price = (
@@ -566,9 +573,10 @@ class BacktestEngine:
             "price": round(exec_price, 8),
             "size": round(new_position, 8),
             "time": time,
+            "entry_idx": bar_idx,
         })
 
-    def _execute_sell(self, price: float, slippage: float, time: Any):
+    def _execute_sell(self, price: float, slippage: float, time: Any, bar_idx: int = -1):
         """Close a long position (sell to exit).
 
         Records PnL = (exit_price - entry_price) * position_size.
@@ -584,6 +592,8 @@ class BacktestEngine:
         pnl = (exec_price - self.entry_price) * self.position
         pnl_pct = (exec_price / self.entry_price - 1.0) * 100 if self.entry_price > 0 else 0
 
+        entry_idx = self.entry_idx
+
         self.trades.append({
             "type": "sell",
             "price": round(exec_price, 8),
@@ -591,13 +601,17 @@ class BacktestEngine:
             "pnl": round(pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
             "time": time,
+            "entry_idx": entry_idx,
+            "exit_idx": bar_idx,
+            "entry_price": round(self.entry_price, 8),
         })
 
-        self.balance = revenue
+        self.balance += revenue
         self.position = 0.0
         self.entry_price = 0.0
+        self.entry_idx = -1
 
-    def _execute_short(self, price: float, slippage: float, time: Any):
+    def _execute_short(self, price: float, slippage: float, time: Any, bar_idx: int = -1):
         """Open a short position (sell to open).
 
         Locks `position_size` fraction of balance as margin.
@@ -616,6 +630,7 @@ class BacktestEngine:
 
         self.position = -short_size
         self.short_entry_price = exec_price
+        self.short_entry_idx = bar_idx
         self._short_margin = allocation  # track margin locked
         self.balance -= allocation
 
@@ -624,9 +639,10 @@ class BacktestEngine:
             "price": round(exec_price, 8),
             "size": round(short_size, 8),
             "time": time,
+            "entry_idx": bar_idx,
         })
 
-    def _execute_cover(self, price: float, slippage: float, time: Any):
+    def _execute_cover(self, price: float, slippage: float, time: Any, bar_idx: int = -1):
         """Close a short position (buy to cover).
 
         Realized PnL = (short_entry_price - exit_price) * abs(position).
@@ -645,6 +661,7 @@ class BacktestEngine:
 
         # PnL = (entry - exit) * size
         realized_pnl = (self.short_entry_price - exec_price) * short_size
+        entry_idx = self.short_entry_idx
 
         # Balance: return margin + realized PnL - fees
         margin_return = getattr(self, '_short_margin', self.balance * self.position_size)
@@ -659,10 +676,14 @@ class BacktestEngine:
             "pnl": round(realized_pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
             "time": time,
+            "entry_idx": entry_idx,
+            "exit_idx": bar_idx,
+            "entry_price": round(self.short_entry_price, 8),
         })
 
         self.position = 0.0
         self.short_entry_price = 0.0
+        self.short_entry_idx = -1
         self._short_margin = 0.0
 
     def _calculate_result(

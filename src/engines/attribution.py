@@ -181,7 +181,7 @@ class AttributionEngine:
                     pass
 
             # α = total - β - fees - slippage
-            alpha_pct = pnl_pct - market_pct + fee_pct + slip_pct
+            alpha_pct = pnl_pct - market_pct - fee_pct - slip_pct
 
             holding_bars = (
                 t.get("exit_idx", 0) - t.get("entry_idx", 0)
@@ -252,9 +252,14 @@ class AttributionEngine:
         total_pnl = sum(abs(t.get("pnl", 0)) for t in trades)
 
         for factor_name, signal_array in signals.items():
-            # Find trades triggered by this factor's signals
+            # Find trades triggered by this factor's signals.
+            # Only realized (closing) trades carry pnl plus an entry_idx that
+            # links back to the bar where the factor fired; opening trades are
+            # skipped so they don't double-count or pollute trade stats.
             factor_trades = []
             for t in trades:
+                if t.get("type") not in ("sell", "cover"):
+                    continue
                 idx = t.get("entry_idx", -1)
                 if 0 <= idx < len(signal_array) and signal_array[idx] != 0:
                     factor_trades.append(t)
@@ -307,7 +312,9 @@ class AttributionEngine:
 
             period_trades = [
                 t for t in trades
-                if start_idx <= t.get("entry_idx", 0) < end_idx
+                if t.get("type") in ("sell", "cover")
+                and t.get("entry_idx") is not None
+                and start_idx <= t.get("entry_idx", 0) < end_idx
             ]
 
             start_eq = equity_curve[start_idx] if start_idx < len(equity_curve) else 0
