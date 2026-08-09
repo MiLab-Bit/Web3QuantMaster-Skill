@@ -13,6 +13,7 @@ Key fixes in v3.4.1:
 from __future__ import annotations
 
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 from typing import List, Optional, Dict
 
 # =============================================================================
@@ -232,24 +233,31 @@ def calc_stochastic(
     k_period: int = 14,
     d_period: int = 3,
 ) -> Dict[str, List[Optional[float]]]:
-    """Stochastic Oscillator (%K, %D)."""
+    """Stochastic Oscillator (%K, %D). Vectorized via sliding windows."""
     n = len(closes)
-    k_values: List[Optional[float]] = [None] * n
-    d_values: List[Optional[float]] = [None] * n
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+    k_values = np.full(n, np.nan)
+    d_values = np.full(n, np.nan)
 
-    for i in range(k_period - 1, n):
-        high_max = max(highs[i - k_period + 1:i + 1])
-        low_min = min(lows[i - k_period + 1:i + 1])
-        k_values[i] = (
-            100.0 * (closes[i] - low_min) / (high_max - low_min)
-            if high_max != low_min else 50.0
-        )
+    if n >= k_period:
+        hwin = sliding_window_view(h, k_period)
+        lwin = sliding_window_view(l, k_period)
+        high_max = hwin.max(axis=1)
+        low_min = lwin.min(axis=1)
+        denom = high_max - low_min
+        kk = np.where(denom != 0, 100.0 * (c[k_period - 1:] - low_min) / denom, 50.0)
+        k_values[k_period - 1:] = kk
 
-    for i in range(k_period + d_period - 2, n):
-        k_slice = [k for k in k_values[i - d_period + 1:i + 1] if k is not None]
-        d_values[i] = sum(k_slice) / len(k_slice) if k_slice else None
+    if n >= k_period + d_period - 1:
+        kwin = sliding_window_view(k_values, d_period)
+        # nanmean skips leading-NaN warm-up bars, matching the original
+        # "skip None" semantics. Rows start at k_period-1 so the window
+        # ending at bar i lines up with d_values[i].
+        d_values[k_period + d_period - 2:] = np.nanmean(kwin[k_period - 1:], axis=1)
 
-    return {"k": k_values, "d": d_values}
+    return {"k": _sanitize(k_values), "d": _sanitize(d_values)}
 
 
 # =============================================================================
@@ -267,16 +275,19 @@ def calc_bollinger(
     arr = _clean_prices(prices)
     n = len(arr)
 
-    upper: List[Optional[float]] = [None] * n
-    lower: List[Optional[float]] = [None] * n
+    upper = np.full(n, np.nan)
+    lower = np.full(n, np.nan)
 
-    for i in range(period - 1, n):
-        if sma[i] is not None:
-            std = float(np.std(arr[i - period + 1:i + 1], ddof=1))
-            upper[i] = float(sma[i]) + std_dev * std  # type: ignore[operator]
-            lower[i] = float(sma[i]) - std_dev * std  # type: ignore[operator]
+    if n >= period:
+        wins = sliding_window_view(arr, period)
+        std = np.std(wins, axis=1, ddof=1)
+        sma_arr = np.asarray(
+            [s if s is not None else np.nan for s in sma], dtype=np.float64
+        )
+        upper[period - 1:] = sma_arr[period - 1:] + std_dev * std
+        lower[period - 1:] = sma_arr[period - 1:] - std_dev * std
 
-    return {"middle": sma, "upper": upper, "lower": lower}
+    return {"middle": sma, "upper": _sanitize(upper), "lower": _sanitize(lower)}
 
 
 def calc_atr(
@@ -342,17 +353,23 @@ def calc_adx(
     if n < period * 2:
         return {"adx": adx, "plus_di": plus_di, "minus_di": minus_di}
 
-    plus_dm, minus_dm, tr_list = [0.0], [0.0], [0.0]
-    for i in range(1, n):
-        up_move = highs[i] - highs[i - 1]
-        down_move = lows[i - 1] - lows[i]
-        plus_dm.append(max(up_move, 0) if up_move > down_move else 0)
-        minus_dm.append(max(down_move, 0) if down_move > up_move else 0)
-        tr_list.append(max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        ))
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+
+    up_move = h[1:] - h[:-1]
+    down_move = l[:-1] - l[1:]
+    plus_dm = np.zeros(n)
+    minus_dm = np.zeros(n)
+    plus_dm[1:] = np.where(up_move > down_move, np.maximum(up_move, 0.0), 0.0)
+    minus_dm[1:] = np.where(down_move > up_move, np.maximum(down_move, 0.0), 0.0)
+
+    tr_list = np.zeros(n)
+    tr_list[1:] = np.maximum.reduce([
+        (h[1:] - l[1:]),
+        np.abs(h[1:] - c[:-1]),
+        np.abs(l[1:] - c[:-1]),
+    ])
 
     # Wilder's smoothing seed = average of the first (period-1) DM/TR values.
     # The recurrence below then folds in plus_dm[period] at bar `period` to
@@ -397,35 +414,36 @@ def calc_adx(
 
 
 def calc_obv(closes: List[float], volumes: List[float]) -> List[float]:
-    """On-Balance Volume."""
+    """On-Balance Volume. Vectorized cumulative sum of signed volume."""
     if not closes or not volumes or len(closes) != len(volumes):
         return []
-    obv = [0.0]
-    for i in range(1, len(closes)):
-        if closes[i] > closes[i - 1]:
-            obv.append(obv[-1] + volumes[i])
-        elif closes[i] < closes[i - 1]:
-            obv.append(obv[-1] - volumes[i])
-        else:
-            obv.append(obv[-1])
-    return obv
+    c = np.asarray(closes, dtype=np.float64)
+    v = np.asarray(volumes, dtype=np.float64)
+    sign = np.sign(np.diff(c))  # +1 up, -1 down, 0 flat (matches == exactly)
+    delta = sign * v[1:]
+    obv = np.concatenate([[0.0], np.cumsum(delta)])
+    return obv.tolist()
 
 
 def calc_vwap(
     highs: List[float], lows: List[float],
     closes: List[float], volumes: List[float],
 ) -> List[Optional[float]]:
-    """Volume Weighted Average Price (cumulative)."""
+    """Volume Weighted Average Price (cumulative). Vectorized cumulative sum."""
     if not closes or not volumes:
         return []
-    vwap: List[Optional[float]] = [None]
-    cum_tp_vol, cum_vol = 0.0, 0.0
-    for i in range(1, len(closes)):
-        tp = (highs[i] + lows[i] + closes[i]) / 3.0
-        cum_tp_vol += tp * volumes[i]
-        cum_vol += volumes[i]
-        vwap.append(cum_tp_vol / cum_vol if cum_vol > 0 else None)
-    return vwap
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+    v = np.asarray(volumes, dtype=np.float64)
+    n = len(c)
+    tpv = (h + l + c) / 3.0 * v
+    # Original loop starts at i=1, so the running sum excludes index 0.
+    cum_tpv = np.cumsum(tpv[1:])
+    cum_v = np.cumsum(v[1:])
+    vwap = np.full(n, np.nan)
+    vwap[1:] = cum_tpv / np.where(cum_v > 0, cum_v, np.nan)
+    return _sanitize(vwap)
 
 
 # =============================================================================
@@ -437,18 +455,21 @@ def calc_cci(
     highs: List[float], lows: List[float], closes: List[float],
     period: int = 20,
 ) -> List[Optional[float]]:
-    """Commodity Channel Index."""
+    """Commodity Channel Index. Vectorized via sliding windows."""
     n = len(closes)
-    cci: List[Optional[float]] = [None] * n
-    if n < period:
-        return cci
-    for i in range(period - 1, n):
-        tp = [(highs[j] + lows[j] + closes[j]) / 3.0 for j in range(i - period + 1, i + 1)]
-        sma_tp = sum(tp) / period
-        mean_dev = sum(abs(t - sma_tp) for t in tp) / period
-        if mean_dev > 0:
-            cci[i] = (tp[-1] - sma_tp) / (0.015 * mean_dev)
-    return cci
+    cci = np.full(n, np.nan)
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+    if n >= period:
+        tp = (h + l + c) / 3.0
+        tpw = sliding_window_view(tp, period)
+        sma_tp = tpw.mean(axis=1)
+        mean_dev = np.mean(np.abs(tpw - sma_tp[:, None]), axis=1)
+        cci_val = (tp[period - 1:] - sma_tp) / (0.015 * mean_dev)
+        cci_val = np.where(mean_dev > 0, cci_val, np.nan)
+        cci[period - 1:] = cci_val
+    return _sanitize(cci)
 
 
 def calc_kdj(
@@ -470,15 +491,24 @@ def calc_williams_r(
     highs: List[float], lows: List[float], closes: List[float],
     period: int = 14,
 ) -> List[Optional[float]]:
-    """Williams %R."""
+    """Williams %R. Vectorized via sliding windows."""
     n = len(closes)
-    wr: List[Optional[float]] = [None] * n
-    for i in range(period - 1, n):
-        h_max = max(highs[i - period + 1:i + 1])
-        l_min = min(lows[i - period + 1:i + 1])
-        if h_max != l_min:
-            wr[i] = -100.0 * (h_max - closes[i]) / (h_max - l_min)
-    return wr
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+    wr = np.full(n, np.nan)
+    if n >= period:
+        hwin = sliding_window_view(h, period)
+        lwin = sliding_window_view(l, period)
+        h_max = hwin.max(axis=1)
+        l_min = lwin.min(axis=1)
+        wr_val = np.where(
+            h_max != l_min,
+            -100.0 * (h_max - c[period - 1:]) / (h_max - l_min),
+            np.nan,
+        )
+        wr[period - 1:] = wr_val
+    return _sanitize(wr)
 
 
 def calc_sar(
@@ -529,29 +559,39 @@ def calc_funding_signal(
 def calc_oi_percentile(
     open_interests: List[float], period: int = 30,
 ) -> List[Optional[float]]:
-    """Open Interest percentile (rolling)."""
+    """Open Interest percentile (rolling). Vectorized via sliding windows.
+
+    NOTE: the original loop starts at `i = period` with a window of width
+    `period + 1` (open_interests[i-period:i+1]); this behavior is preserved
+    exactly so downstream callers see identical numbers.
+    """
     n = len(open_interests)
-    percentiles: List[Optional[float]] = [None] * n
-    for i in range(period, n):
-        window = open_interests[i - period:i + 1]
-        current = open_interests[i]
-        count_below = sum(1 for oi in window if oi < current)
-        percentiles[i] = count_below / len(window) * 100.0
-    return percentiles
+    oi = np.asarray(open_interests, dtype=np.float64)
+    percentiles = np.full(n, np.nan)
+    if n > period:
+        wins = sliding_window_view(oi, period + 1)  # rows end at bar i = k + period
+        cur = oi[period:]                            # bars period .. n-1
+        count_below = np.sum(wins < cur[:, None], axis=1)
+        percentiles[period:] = count_below / (period + 1) * 100.0
+    return _sanitize(percentiles)
 
 
 def calc_cvd(
     bids: List[float], asks: List[float], volumes: List[float],
 ) -> List[float]:
-    """Cumulative Volume Delta."""
-    cvd = [0.0]
-    for i in range(1, len(volumes)):
-        delta = (
-            (bids[i] - asks[i]) / (bids[i] + asks[i]) * volumes[i]
-            if (bids[i] + asks[i]) > 0 else 0.0
-        )
-        cvd.append(cvd[-1] + delta)
-    return cvd
+    """Cumulative Volume Delta. Vectorized cumulative sum."""
+    b = np.asarray(bids, dtype=np.float64)
+    a = np.asarray(asks, dtype=np.float64)
+    v = np.asarray(volumes, dtype=np.float64)
+    n = len(v)
+    if n == 0:
+        return []
+    denom = b + a
+    safe_denom = np.where(denom > 0, denom, 1.0)
+    delta = np.where(denom > 0, (b - a) / safe_denom * v, 0.0)
+    # Original loop starts at i=1, so delta[0] is excluded from the running sum.
+    cvd = np.concatenate([[0.0], np.cumsum(delta[1:])])
+    return cvd.tolist()
 
 
 # =============================================================================
@@ -678,6 +718,82 @@ def _rolling_ols_slope(
     return result
 
 
+def _rolling_corr_sq(x: np.ndarray, y: np.ndarray, window: int) -> np.ndarray:
+    """Vectorized rolling squared correlation (R^2) with NaN masking.
+
+    Equivalent to the per-bar loop:
+        corr = np.corrcoef(xi_v, yi_v)[0, 1]
+        r2 = corr ** 2 if not np.isnan(corr) else 0.0
+    over the non-NaN elements of each window. Windows with fewer than
+    max(3, window//2) valid points yield NaN (skipped).
+    """
+    n = len(x)
+    r2 = np.full(n, np.nan)
+    if n < window or window < 2:
+        return r2
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    mask = ~(np.isnan(x) | np.isnan(y))
+    xm = np.where(np.isnan(x), 0.0, x)
+    ym = np.where(np.isnan(y), 0.0, y)
+    sw_x = sliding_window_view(xm, window)
+    sw_y = sliding_window_view(ym, window)
+    cnt = sliding_window_view(mask, window).sum(axis=1)
+    sx = sw_x.sum(axis=1)
+    sy = sw_y.sum(axis=1)
+    sxy = (sw_x * sw_y).sum(axis=1)
+    sx2 = (sw_x ** 2).sum(axis=1)
+    sy2 = (sw_y ** 2).sum(axis=1)
+    safe_cnt = np.where(cnt > 0, cnt, 1.0)
+    mx = sx / safe_cnt
+    my = sy / safe_cnt
+    safe_dof = np.where(cnt > 1, cnt - 1, 1.0)
+    cov = (sxy - cnt * mx * my) / safe_dof
+    vx = (sx2 - cnt * mx * mx) / safe_dof
+    vy = (sy2 - cnt * my * my) / safe_dof
+    denom = np.sqrt(np.maximum(vx, 0.0) * np.maximum(vy, 0.0))
+    corr = np.where(denom > 1e-12, cov / denom, 0.0)
+    enough = cnt >= max(3, window // 2)
+    r2[window - 1:] = np.where(enough, corr ** 2, np.nan)
+    return r2
+
+
+def _rolling_right_skew_corrected(
+    raw: np.ndarray, window: int, min_count: int = 30,
+) -> np.ndarray:
+    """Vectorized right-skew correction of a rolling z-score series.
+
+    Equivalent to the per-bar loop computing the skew of each window
+    (NaN removed) and applying `signal - skew*0.5*max(0, signal)`. Bars
+    with a NaN signal or fewer than `min_count` valid points stay NaN.
+    """
+    n = len(raw)
+    result = np.full(n, np.nan)
+    if n < window:
+        return result
+    isnan_raw = np.isnan(raw)
+    x = np.where(isnan_raw, 0.0, raw)
+    sw = sliding_window_view(x, window)
+    cnt = sliding_window_view(~isnan_raw, window).sum(axis=1)
+    sx = sw.sum(axis=1)
+    sx2 = (sw ** 2).sum(axis=1)
+    sx3 = (sw ** 3).sum(axis=1)
+    safe_cnt = np.where(cnt > 0, cnt, 1.0)
+    m = sx / safe_cnt
+    var = (sx2 - cnt * m * m) / np.where(cnt > 1, cnt - 1, 1.0)
+    std = np.sqrt(np.maximum(var, 0.0))
+    # Third central moment over the non-NaN subset (masked pts are 0, so
+    # their (0-m)^3 contribution is subtracted out via the -m^3*cnt term).
+    third = (sx3 - 3.0 * m * sx2 + 3.0 * m * m * sx - m * m * m * cnt) / safe_cnt
+    skewv = third / np.maximum(std ** 3, 1e-12)
+    valid_win = (~isnan_raw)[window - 1:] & (cnt >= min_count)
+    sig = raw[window - 1:]
+    result[window - 1:] = np.where(
+        valid_win, sig - skewv * 0.5 * np.maximum(0.0, sig), np.nan
+    )
+    return result
+
+
 def calc_rsrs(
     highs: List[float],
     lows: List[float],
@@ -716,45 +832,24 @@ def calc_rsrs(
     # Step 1: Rolling OLS slope
     beta = _rolling_ols_slope(np.array(highs), np.array(lows), window)
 
-    # Step 2: R-squared
-    r2 = np.full(n, np.nan)
-    for i in range(window - 1, n):
-        xi = np.array(lows[i - window + 1:i + 1], dtype=np.float64)
-        yi = np.array(highs[i - window + 1:i + 1], dtype=np.float64)
-        valid = ~(np.isnan(xi) | np.isnan(yi))
-        if valid.sum() < max(3, window // 2):
-            continue
-        xi_v, yi_v = xi[valid], yi[valid]
-        corr = np.corrcoef(xi_v, yi_v)[0, 1]
-        r2[i] = corr ** 2 if not np.isnan(corr) else 0.0
+    # Step 2: R-squared (vectorized rolling correlation)
+    r2 = _rolling_corr_sq(np.array(lows), np.array(highs), window)
 
-    # Step 3: Z-score normalize beta
+    # Step 3: Z-score normalize beta (vectorized rolling mean/std)
     beta_clean = np.where(np.isnan(beta), 0.0, beta)
     beta_mean = np.full(n, np.nan)
     beta_std = np.full(n, np.nan)
-    for i in range(zscore_window - 1, n):
-        segment = beta_clean[i - zscore_window + 1:i + 1]
-        beta_mean[i] = np.mean(segment)
-        beta_std[i] = np.std(segment, ddof=1)
+    if n >= zscore_window:
+        zw_seg = sliding_window_view(beta_clean, zscore_window)
+        beta_mean[zscore_window - 1:] = zw_seg.mean(axis=1)
+        beta_std[zscore_window - 1:] = zw_seg.std(axis=1, ddof=1)
 
     signal_raw = np.full(n, np.nan)
-    for i in range(zscore_window - 1, n):
-        if beta_std[i] > 1e-12:
-            signal_raw[i] = (beta[i] - beta_mean[i]) / beta_std[i]
+    valid = (beta_std > 1e-12) & (~np.isnan(beta))
+    signal_raw[valid] = (beta[valid] - beta_mean[valid]) / beta_std[valid]
 
-    # Step 4: Right-skew correction (光大2019改进)
-    # Adjust signal to correct for the natural right-skew in RSRS distribution
-    signal_right = np.full(n, np.nan)
-    for i in range(zscore_window - 1, n):
-        if not np.isnan(signal_raw[i]):
-            segment = signal_raw[i - zscore_window + 1:i + 1]
-            segment = segment[~np.isnan(segment)]
-            if len(segment) < 30:
-                continue
-            # Right-skew adjustment: multiply by skewness correction factor
-            skew = float(np.mean((segment - np.mean(segment)) ** 3) / max(np.std(segment, ddof=1) ** 3, 1e-12))
-            # Modified z-score that penalizes right-skew
-            signal_right[i] = signal_raw[i] - skew * 0.5 * max(0.0, signal_raw[i])
+    # Step 4: Right-skew correction (光大2019改进) — vectorized rolling skew
+    signal_right = _rolling_right_skew_corrected(signal_raw, zscore_window, min_count=30)
 
     return {
         "beta": _sanitize(beta),
@@ -804,10 +899,11 @@ def calc_qrs(
     def _rolling_zscore(arr: np.ndarray, lookback: int) -> np.ndarray:
         z = np.full(n, np.nan)
         arr_c = np.where(np.isnan(arr), 0.0, arr)
-        for i in range(lookback - 1, n):
-            seg = arr_c[i - lookback + 1:i + 1]
-            m, s = np.mean(seg), np.std(seg, ddof=1)
-            z[i] = (arr[i] - m) / s if s > 1e-12 else 0.0
+        if n >= lookback:
+            sw = sliding_window_view(arr_c, lookback)
+            m = sw.mean(axis=1)
+            s = sw.std(axis=1, ddof=1)
+            z[lookback - 1:] = np.where(s > 1e-12, (arr[lookback - 1:] - m) / s, 0.0)
         return z
 
     z_beta = _rolling_zscore(beta, zscore_window)
@@ -815,21 +911,14 @@ def calc_qrs(
 
     # Step 4: QRS signal = weighted combination
     # Price trend weight: 0.6, Volume confirmation weight: 0.4
-    qrs_signal = np.full(n, np.nan)
-    for i in range(n):
-        if not np.isnan(z_beta[i]) and not np.isnan(z_vol[i]):
-            qrs_signal[i] = 0.6 * z_beta[i] + 0.4 * z_vol[i]
+    qrs_signal = np.where(
+        (~np.isnan(z_beta)) & (~np.isnan(z_vol)),
+        0.6 * z_beta + 0.4 * z_vol,
+        np.nan,
+    )
 
-    # R-squared
-    r2 = np.full(n, np.nan)
-    for i in range(window - 1, n):
-        xi = np.array(lows[i - window + 1:i + 1], dtype=np.float64)
-        yi = np.array(highs[i - window + 1:i + 1], dtype=np.float64)
-        valid = ~(np.isnan(xi) | np.isnan(yi))
-        if valid.sum() < max(3, window // 2):
-            continue
-        corr = np.corrcoef(xi[valid], yi[valid])[0, 1]
-        r2[i] = corr ** 2 if not np.isnan(corr) else 0.0
+    # R-squared (vectorized rolling correlation)
+    r2 = _rolling_corr_sq(np.array(lows), np.array(highs), window)
 
     return {
         "beta": _sanitize(beta),
@@ -898,10 +987,11 @@ def calc_hht_trend(
     arr = np.array(prices, dtype=np.float64)
     result = np.full(n, np.nan)
 
-    # Step 1: Detrend — remove long-term SMA
+    # Step 1: Detrend — remove long-term SMA (vectorized sliding mean)
     sma_long = np.full(n, np.nan)
-    for i in range(hilbert_window - 1, n):
-        sma_long[i] = np.mean(arr[i - hilbert_window + 1:i + 1])
+    if n >= hilbert_window:
+        sw = sliding_window_view(arr, hilbert_window)
+        sma_long[hilbert_window - 1:] = sw.mean(axis=1)
 
     detrended = arr - sma_long
 
