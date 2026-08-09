@@ -26,6 +26,18 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
+# ── 多重检验矫正 (FDR/Bonferroni) ──
+try:
+    from engines.multiple_testing import (
+        benjamini_hochberg, bonferroni_significant, bonferroni_threshold,
+        fisher_z_pvalue,
+    )
+except ImportError:
+    from multiple_testing import (
+        benjamini_hochberg, bonferroni_significant, bonferroni_threshold,
+        fisher_z_pvalue,
+    )
+
 # ── DEAP 遗传规划 ──
 try:
     from deap import base, creator, tools, gp, algorithms
@@ -127,7 +139,7 @@ def build_pset(feature_names: List[str]):
     # 数值函数
     pset.addPrimitive(math.sqrt, [float], float)
     pset.addPrimitive(math.log1p, [float], float)
-    pset.addEphemeralConstant(lambda: random.uniform(-1, 1), float)
+    pset.addEphemeralConstant("rand", lambda: random.uniform(-1, 1), float)
 
     return pset
 
@@ -136,12 +148,14 @@ def build_pset(feature_names: List[str]):
 # 评估函数
 # ══════════════════════════════════════════════
 
-def evaluate_factor(factor_tree, toolbox, feature_df: pd.DataFrame,
-                    target_col: str = "future_return_1d") -> Tuple[float]:
+def evaluate_factor_full(factor_tree, toolbox, feature_df: pd.DataFrame,
+                         target_col: str = "future_return_1d") -> Tuple[float, float, int]:
     """
-    评估一个因子表达式：
-    - 计算 IC（Information Coefficient）：因子值与未来收益的相关性
-    - IC > 0.05 通常认为有预测能力
+    评估一个因子表达式，返回 (IC, p_value, n_samples)。
+
+    - IC（Information Coefficient）= 因子值与未来收益的 Pearson 相关系数
+    - p_value 基于 Fisher z 变换的 IC 显著性 (双尾)
+    - 样本不足或退化时返回 (ic, 1.0, n)
     """
     try:
         compiled = toolbox.compile(expr=factor_tree)
@@ -157,19 +171,31 @@ def evaluate_factor(factor_tree, toolbox, feature_df: pd.DataFrame,
         factor_series = pd.Series(factor_values)
         target_series = feature_df[target_col].values
 
-        # 过滤无效值
         valid = np.isfinite(factor_series) & np.isfinite(target_series)
-        if valid.sum() < 30:
-            return (-999,)  # 数据太少
+        n = int(valid.sum())
+        if n < 30:
+            return (-999.0, 1.0, n)
 
         ic = np.corrcoef(factor_series[valid], target_series[valid])[0, 1]
         if np.isnan(ic):
-            return (-999,)
+            return (-999.0, 1.0, n)
 
-        # IC 越高越好（可能为负，负相关也是有效因子）
-        return (ic,)
+        p = fisher_z_pvalue(float(ic), n)
+        return (float(ic), float(p), n)
     except Exception:
-        return (-999,)
+        return (-999.0, 1.0, 0)
+
+
+def evaluate_factor(factor_tree, toolbox, feature_df: pd.DataFrame,
+                    target_col: str = "future_return_1d") -> Tuple[float]:
+    """
+    评估一个因子表达式 (GP 适应度)：
+    - 计算 IC（Information Coefficient）：因子值与未来收益的相关性
+    - IC > 0.05 通常认为有预测能力
+    返回 (ic,) —— 仅 IC 作为遗传规划适应度；显著性由 run() 统一做多重检验矫正。
+    """
+    ic, _, _ = evaluate_factor_full(factor_tree, toolbox, feature_df, target_col)
+    return (ic,)
 
 
 # ══════════════════════════════════════════════
@@ -235,7 +261,7 @@ class FactorMiner:
         for w in [5, 10, 20, 60]:
             arr = np.array(close)
             features[f"sma_{w}"] = self._sma(arr, w)
-            features[f"ema_{w}"] = self._ema(arr, w)
+            features[f"ema_{w}"] = self._ema_arr(arr, w)
             features[f"std_{w}"] = self._std_arr(arr, w)
             features[f"vol_{w}"] = features[f"std_{w}"] / (features[f"sma_{w}"] + 1e-10)
 
@@ -244,8 +270,8 @@ class FactorMiner:
             features[f"rsi_{w}"] = self._rsi_arr(close, w)
             features[f"roc_{w}"] = self._roc_arr(close, w)
 
-        features["macd"] = self._ema(close, 12) - self._ema(close, 26)
-        features["macd_signal"] = self._ema(features["macd"], 9)
+        features["macd"] = self._ema_arr(close, 12) - self._ema_arr(close, 26)
+        features["macd_signal"] = self._ema_arr(features["macd"], 9)
         features["macd_hist"] = features["macd"] - features["macd_signal"]
 
         # ── 波动率类 ──
@@ -349,7 +375,7 @@ class FactorMiner:
         stats.register("avg", np.mean)
         stats.register("min", np.min)
         stats.register("max", np.max)
-        stats.register("ic_max", lambda pop: max(ind.fitness.values[0] for ind in pop))
+        stats.register("ic_max", lambda vals: max(v[0] for v in vals))
 
         print(f"\n{'='*60}")
         print(f"  遗传规划因子挖掘")
@@ -391,14 +417,35 @@ class FactorMiner:
         all_individuals = list(pop) + list(hof)
         all_individuals.sort(key=lambda x: x.fitness.values[0], reverse=True)
 
+        # ── 多重检验矫正 (FDR / Bonferroni) ──
+        # 对 Top-N 候选因子重算 IC 显著性，避免遗传规划过拟合噪声被当成 alpha。
+        candidates = all_individuals[:top_n]
+        cand_metrics = []
+        for ind in candidates:
+            ic, p, n = evaluate_factor_full(ind, self.toolbox, feature_df)
+            cand_metrics.append((ind, ic, p, n))
+
+        pvals = [m[2] for m in cand_metrics]
+        qvals = benjamini_hochberg(pvals)
+        bonf_sig = bonferroni_significant(pvals)
+        bonf_thr = bonferroni_threshold(len(pvals))
+
         results = []
-        for rank, ind in enumerate(all_individuals[:top_n]):
-            ic = ind.fitness.values[0]
+        for rank, (ind, ic, p, n) in enumerate(cand_metrics):
+            if ic <= -999:
+                continue
             formula = str(ind)
             depth = ind.height
 
             # 简化公式展示
             simple = self._simplify_formula(formula)
+            bh_sig = bool(qvals[rank] <= 0.05)
+            caveat = ("" if bh_sig else
+                      "⚠ 多重检验(FDR)后仍不显著，可能为过拟合噪声，需样本外验证")
+            quality = ("⭐⭐⭐⭐⭐" if abs(ic) > 0.08 else
+                       "⭐⭐⭐⭐" if abs(ic) > 0.06 else
+                       "⭐⭐⭐" if abs(ic) > 0.04 else
+                       "⭐⭐" if abs(ic) > 0.02 else "⭐")
             results.append({
                 "rank": rank + 1,
                 "formula": formula,
@@ -407,12 +454,21 @@ class FactorMiner:
                 "ic_abs": round(abs(ic), 4),
                 "depth": depth,
                 "signal": "正相关" if ic > 0 else "负相关",
-                "quality": "⭐⭐⭐⭐⭐" if abs(ic) > 0.08 else
-                           "⭐⭐⭐⭐" if abs(ic) > 0.06 else
-                           "⭐⭐⭐" if abs(ic) > 0.04 else
-                           "⭐⭐" if abs(ic) > 0.02 else "⭐"
+                "quality": quality,
+                "p_value": round(p, 6),
+                "fdr_q": round(qvals[rank], 6),
+                "bh_significant": bh_sig,
+                "bonferroni_significant": bool(bonf_sig[rank]),
+                "bonferroni_threshold": round(bonf_thr, 6),
+                "n_samples": n,
+                "caveat": caveat,
             })
-            print(f"  {rank+1:2d}. IC={ic:+.4f} [{results[-1]['quality']}] {simple}")
+            flag = "" if bh_sig else "  [伪显著风险]"
+            print(f"  {rank+1:2d}. IC={ic:+.4f} p={p:.4f} q={qvals[rank]:.4f} "
+                  f"[{quality}]{flag} {simple}")
+
+        n_sig_bh = sum(1 for r in results if r["bh_significant"])
+        n_sig_bonf = sum(1 for r in results if r["bonferroni_significant"])
 
         return {
             "generation": self.generations,
@@ -421,7 +477,16 @@ class FactorMiner:
             "top_factors": results,
             "hall_of_fame": [str(ind) for ind in hof],
             "best_ic": best_ic,
-            "history": self.history
+            "history": self.history,
+            "multiple_testing": {
+                "method": "Benjamini-Hochberg FDR + Bonferroni",
+                "alpha": 0.05,
+                "bonferroni_threshold": round(bonf_thr, 6),
+                "n_candidates": len(cand_metrics),
+                "n_significant_fdr": n_sig_bh,
+                "n_significant_bonferroni": n_sig_bonf,
+                "note": "因子在 FDR 后仍不显著时，caveat 标注其为过拟合噪声风险",
+            },
         }
 
     def _simplify_formula(self, formula: str) -> str:

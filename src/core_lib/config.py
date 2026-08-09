@@ -56,9 +56,6 @@ def _yaml_get(*keys: str, default: Any = None) -> Any:
             return default
     return node
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 # =============================================================================
 # Version — single source of truth: _meta.json
 # =============================================================================

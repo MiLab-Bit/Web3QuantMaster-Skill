@@ -58,17 +58,13 @@ def _format_glassnode_response(result: DegradedResponse, asset: str, interval: s
         "interval": interval,
         extract_key: value,
         "interpretation": interp,
-        "_tier": result.tier.value,
-        "_source": result.source,
     }
 
     if result.tier == DataTier.FULL and raw:
         response["raw"] = raw[-5:]
-    if result.degraded:
-        response["_degraded"] = True
-        response["_warnings"] = result.warnings
 
-    return response
+    # 始终透传降级质量标注（_tier/_source/_degraded/_warnings/_estimated）
+    return result.merge_into(response)
 
 
 # ── MVRV Z-Score ───────────────────────────────────────────────────────────
@@ -145,14 +141,10 @@ def onchain_nupl(asset: str = "BTC", interval: str = "24h") -> Dict[str, Any]:
     response = {
         "status": "ok" if result.tier == DataTier.FULL else "degraded",
         "asset": asset, "nupl": nupl, "cycle": cycle,
-        "_tier": result.tier.value, "_source": result.source,
     }
     if result.tier == DataTier.FULL and raw:
         response["raw"] = raw[-5:]
-    if result.degraded:
-        response["_degraded"] = True
-        response["_warnings"] = result.warnings
-    return response
+    return result.merge_into(response)
 
 
 # ── Exchange Net Flow ───────────────────────────────────────────────────────
@@ -191,12 +183,8 @@ def onchain_exchange_flow(asset: str = "BTC", interval: str = "24h") -> Dict[str
         "status": "ok" if result.tier == DataTier.FULL else "degraded",
         "asset": asset, "inflow": inflow, "outflow": outflow, "net_flow": net,
         "signal": "sell_pressure" if net > 0 else "accumulation",
-        "_tier": result.tier.value, "_source": result.source,
     }
-    if result.degraded:
-        response["_degraded"] = True
-        response["_warnings"] = result.warnings
-    return response
+    return result.merge_into(response)
 
 
 # ── Handler Registry ───────────────────────────────────────────────────────

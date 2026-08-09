@@ -21,28 +21,14 @@ import os
 from pathlib import Path
 
 # =============================================================================
-# Ensure project root is in path (for development only)
+# Path bootstrap (开发期引导；生产环境推荐 `pip install -e .`，无需此段)
 # =============================================================================
 
-# NOTE: For production, use 'pip install -e .' instead of sys.path manipulation
-# This block is kept for backward compatibility during transition period (v3.5.x)
-if os.environ.get("W3QM_DEV_MODE", "").lower() in ("1", "true", "yes"):
-    PROJECT_ROOT = Path(__file__).parent.resolve()
-    SRC_DIR = PROJECT_ROOT / "src"
-    
-    if str(PROJECT_ROOT) not in sys.path:
-        sys.path.insert(0, str(PROJECT_ROOT))
-    if str(SRC_DIR) not in sys.path:
-        sys.path.insert(0, str(SRC_DIR))
-    
-    import warnings
-    warnings.warn(
-        "Using sys.path manipulation for development. "
-        "Set W3QM_DEV_MODE=0 and use 'pip install -e .' instead. "
-        "sys.path manipulation will be removed in v3.6.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+PROJECT_ROOT = Path(__file__).parent.resolve()
+SRC_DIR = PROJECT_ROOT / "src"
+for _p in (str(PROJECT_ROOT), str(SRC_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 # =============================================================================

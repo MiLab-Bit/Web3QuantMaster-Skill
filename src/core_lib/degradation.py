@@ -60,6 +60,23 @@ class DegradedResponse:
             "_warnings": self.warnings,
         }
 
+    def merge_into(self, base: Dict[str, Any]) -> Dict[str, Any]:
+        """将降级质量标注合并进已有的返回 dict，保证 _tier 等始终回传用户。
+
+        - 始终写入 _tier / _source / _stale_seconds（让用户知晓数据来源层级）
+        - 降级时写入 _degraded=True 与 _warnings
+        - offline(合成估算) 时额外写入 _estimated=True 醒目标记
+        """
+        base["_tier"] = self.tier.value
+        base["_source"] = self.source
+        base["_stale_seconds"] = self.stale_seconds
+        if self.degraded:
+            base["_degraded"] = True
+            base["_warnings"] = self.warnings
+        if self.tier == DataTier.OFFLINE:
+            base["_estimated"] = True
+        return base
+
 
 # =============================================================================
 # Circuit Breaker

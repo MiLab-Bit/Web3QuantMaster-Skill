@@ -45,6 +45,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
 
+# ── 多重检验矫正 (FDR/Bonferroni) ──
+try:
+    from engines.multiple_testing import (
+        benjamini_hochberg, bonferroni_significant, fisher_z_pvalue,
+    )
+except ImportError:
+    from multiple_testing import (
+        benjamini_hochberg, bonferroni_significant, fisher_z_pvalue,
+    )
+
 # ── 编码兼容 ──────────────────────────────────────
 if sys.platform == 'win32':
     try:
@@ -163,6 +173,10 @@ class FactorICRecord:
     level:         str      # ICLevel 值
     weight:        float    # 当前建议权重
     decay_weeks:   int      # 连续失效周数
+    p_value:       float = float('nan')   # IC 显著性 (Fisher z 双尾)
+    fdr_q:         float = float('nan')   # Benjamini-Hochberg 矫正后 q-value
+    bh_significant: bool = False          # FDR 后仍显著
+    bonferroni_significant: bool = False  # Bonferroni 后显著
 
 
 @dataclass
@@ -442,10 +456,13 @@ def compute_forward_returns(prices: List[float], forward: int = 1) -> List[float
     return returns[:len(prices)]
 
 
-def calc_factor_ic_series(factor_values: List, forward_returns: List) -> Tuple[float, List[float]]:
+def calc_factor_ic_series(factor_values: List, forward_returns: List) -> Tuple[float, List[float], int]:
     """
     计算单个因子在所有时点的 IC 序列（用于滚动 IC）
-    返回: (mean_ic, ic_series)
+    返回: (mean_ic, ic_series, n_valid)
+      - mean_ic:  有效 IC 的均值
+      - ic_series:逐点 IC（含 NaN 预热期）
+      - n_valid:  有效 IC 点数（用于 Fisher z 显著性检验的样本量）
     """
     ic_series = []
     for i in range(len(factor_values)):
@@ -458,9 +475,10 @@ def calc_factor_ic_series(factor_values: List, forward_returns: List) -> Tuple[f
         ic_series.append(ic)
     mean_ic = float('nan')
     valid_ics = [v for v in ic_series if not math.isnan(v)]
+    n_valid = len(valid_ics)
     if valid_ics:
-        mean_ic = sum(valid_ics) / len(valid_ics)
-    return mean_ic, ic_series
+        mean_ic = sum(valid_ics) / n_valid
+    return mean_ic, ic_series, n_valid
 
 
 def calc_ic_ir(ic_series: List[float]) -> float:
@@ -526,16 +544,16 @@ def save_ic_records(records: List[FactorICRecord], symbol: str):
     """将 IC 记录追加写入 DB"""
     from data.store import DataStore
     store = DataStore()
-    for rec in records:
-        store.save_ic_record(
-            symbol=symbol, interval=getattr(rec, 'interval', ''),
-            factor=rec.factor,
-            ic_value=rec.ic if not math.isnan(rec.ic) else None,
-            ic_level=rec.level,
-            lookback_days=getattr(rec, 'decay_weeks', 0) * 7,
-        )
-                })
-        logger.info(f"IC 记录已保存: {filepath}")
+    try:
+        for rec in records:
+            store.save_ic_record(
+                symbol=symbol, interval=getattr(rec, 'interval', ''),
+                factor=rec.factor,
+                ic_value=rec.ic if not math.isnan(rec.ic) else None,
+                ic_level=rec.level,
+                lookback_days=getattr(rec, 'decay_weeks', 0) * 7,
+            )
+        logger.info(f"IC 记录已保存: {len(records)} 条 ({symbol})")
     except Exception as e:
         logger.error(f"保存 IC 记录失败: {e}")
 
@@ -746,10 +764,11 @@ def run_ic_monitor(symbol: str, interval: str,
         factor_values = [float('nan') if v is None else v for v in factor_values]
 
         # 计算 IC
-        ic_mean_1, ic_series_1  = calc_factor_ic_series(factor_values, forward_1)
-        ic_mean_4, _              = calc_factor_ic_series(factor_values, forward_4)
-        ic_mean_24, _            = calc_factor_ic_series(factor_values, forward_24)
-        ic_ir                     = calc_ic_ir(ic_series_1)
+        ic_mean_1, ic_series_1, n_valid_1 = calc_factor_ic_series(factor_values, forward_1)
+        ic_mean_4, _, _                   = calc_factor_ic_series(factor_values, forward_4)
+        ic_mean_24, _, _                  = calc_factor_ic_series(factor_values, forward_24)
+        ic_ir                             = calc_ic_ir(ic_series_1)
+        p_value = fisher_z_pvalue(ic_mean_1, n_valid_1) if not math.isnan(ic_mean_1) else 1.0
 
         # IC 等级判定
         ic_abs = abs(ic_mean_1) if not math.isnan(ic_mean_1) else 0
@@ -778,6 +797,7 @@ def run_ic_monitor(symbol: str, interval: str,
             level        = level,
             weight       = weight,
             decay_weeks  = decay_weeks,
+            p_value      = p_value,
         )
         records.append(rec)
 
@@ -804,6 +824,26 @@ def run_ic_monitor(symbol: str, interval: str,
                 'factor':  factor_name,
                 'ic':      ic_mean_1,
                 'message': f"[INVALID] {factor_name} IC={ic_mean_1:.4f} — 因子已失效，建议从组合中剔除",
+            })
+
+    # ── 多重检验矫正 (FDR / Bonferroni) ──
+    # 12 个因子同时检验 → 必须矫正以暴露伪显著。
+    _pvals = [r.p_value for r in records]
+    _qvals = benjamini_hochberg(_pvals)
+    _bonf = bonferroni_significant(_pvals)
+    for _r, _q, _b in zip(records, _qvals, _bonf):
+        _r.fdr_q = _q
+        _r.bh_significant = bool(_q <= 0.05)
+        _r.bonferroni_significant = _b
+        if _r.level != ICLevel.INVALID.value and not _r.bh_significant:
+            alerts.append({
+                'type':    'FDR_NONSIG',
+                'factor':  _r.factor,
+                'ic':      _r.ic,
+                'p_value': _r.p_value,
+                'fdr_q':   _q,
+                'message': f"[FDR] {_r.factor} IC={_r.ic:.4f} p={_r.p_value:.4f} q={_q:.4f} "
+                           f"— 多重检验(FDR)后不显著，谨慎使用，可能为噪声",
             })
 
     # ── Step 3: 持久化 ───────────────────────────────
@@ -854,12 +894,14 @@ def print_ic_report(report: ICMonitorReport):
     print()
 
     # ── IC 汇总表 ───────────────────────────────────
-    print(f'{"因子":<10} {"类别":<10} {"IC(1期)":>9} {"IC(4期)":>9} {"IC(24期)":>10} {"等级":>8} {"权重":>7} {"预警状态"}')
-    print('─' * 90)
+    print(f'{"因子":<10} {"类别":<10} {"IC(1期)":>9} {"IC(4期)":>9} {"IC(24期)":>10} {"p值":>8} {"q(FDR)":>8} {"等级":>8} {"权重":>7} {"预警状态"}')
+    print('─' * 110)
     for r in sorted(report.records, key=lambda x: abs(x.ic if not math.isnan(x.ic) else 0), reverse=True):
         ic1  = f'{r.ic:.4f}'  if not math.isnan(r.ic)  else 'N/A'
         ic4  = f'{r.ic_forward_4:.4f}' if not math.isnan(r.ic_forward_4) else 'N/A'
         ic24 = f'{r.ic_forward_24:.4f}' if not math.isnan(r.ic_forward_24) else 'N/A'
+        pv   = f'{r.p_value:.4f}' if not math.isnan(r.p_value) else 'N/A'
+        qv   = f'{r.fdr_q:.4f}' if not math.isnan(r.fdr_q) else 'N/A'
         cat  = FACTOR_DEFINITIONS.get(r.factor, {}).get('category', '?')[:8]
         level_color = {
             'STRONG': '🟢STRONG', 'MODERATE': '🟡MODERATE',
@@ -867,7 +909,8 @@ def print_ic_report(report: ICMonitorReport):
         }.get(r.level, r.level)
         weight_str = f'{r.weight:.0%}' if r.weight < 1.0 else '100%'
         decay_str = f'(衰减{r.decay_weeks}周)' if r.decay_weeks > 0 else ''
-        print(f'{r.factor:<10} {cat:<10} {ic1:>9} {ic4:>9} {ic24:>10} {level_color:>14} {weight_str:>6} {decay_str}')
+        fdr_str = '' if r.bh_significant else ' [FDR不显著]'
+        print(f'{r.factor:<10} {cat:<10} {ic1:>9} {ic4:>9} {ic24:>10} {pv:>8} {qv:>8} {level_color:>14} {weight_str:>6} {decay_str}{fdr_str}')
 
     print('─' * 90)
 
@@ -935,6 +978,10 @@ def export_ic_json(report: ICMonitorReport, output_dir: Optional[str] = None):
                 'level':         r.level,
                 'weight':        r.weight,
                 'decay_weeks':   r.decay_weeks,
+                'p_value':       float(r.p_value) if not math.isnan(r.p_value) else None,
+                'fdr_q':         float(r.fdr_q) if not math.isnan(r.fdr_q) else None,
+                'bh_significant': r.bh_significant,
+                'bonferroni_significant': r.bonferroni_significant,
                 'category':      FACTOR_DEFINITIONS.get(r.factor, {}).get('category', 'unknown'),
             }
             for r in report.records
