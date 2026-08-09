@@ -334,12 +334,8 @@ class BacktestEngine:
                 bar_vol = candle.get("volume", 0)
                 if bar_vol < avg_volume * self.min_volume_ratio:
                     # Record equity without executing signals
-                    unrealized = 0.0
-                    if self.position > 0:
-                        unrealized = self.position * price
-                    elif self.position < 0:
-                        # Short unrealized PnL = (entry_price - current_price) * abs(position)
-                        unrealized = (self.short_entry_price - price) * abs(self.position)
+                    self._accrue_funding(candle, price)  # 跳过成交的 bar 仍结算资金费
+                    unrealized = self.position * price
                     equity = self.balance + unrealized
                     self.equity_curve.append(equity)
                     continue
@@ -385,13 +381,13 @@ class BacktestEngine:
                         logger.debug("Short fixed SL at bar %d: -%.2f%%", i, loss_pct * 100)
                         self._execute_cover(price, slippage, bar_time, i)
 
-            # Record equity (long + short + cash)
-            unrealized = 0.0
-            if self.position > 0:
-                unrealized = self.position * price
-            elif self.position < 0:
-                # Short unrealized PnL = (entry_price - current_price) * abs(position)
-                unrealized = (self.short_entry_price - price) * abs(self.position)
+            # ── Funding (永续资金费, 仅当 candle 携带 funding_rate 字段) ──
+            self._accrue_funding(candle, price)
+
+            # Record equity (long + short + cash).
+            # 统一用 position*price: 多头为正持仓市值, 空头为负负债市值,
+            # 配合修正后的空头现金流 (开仓收 proceeds / 平仓付 buyback) 自洽。
+            unrealized = self.position * price
             equity = self.balance + unrealized
             self.equity_curve.append(equity)
 
@@ -539,6 +535,23 @@ class BacktestEngine:
         scale = self.target_volatility / max(actual_vol, 0.001)
         return min(self.position_size, scale * self.position_size)
 
+    def _accrue_funding(self, candle: Dict[str, Any], price: float) -> None:
+        """对持仓中的永续合约按 candle 携带的 funding_rate 结算资金费。
+
+        仅在 candle 含 'funding_rate' 字段时生效 —— 绝大多数回测数据无此字段,
+        此时行为完全不变 (无副作用)。方向约定: funding_rate > 0 时多头付、空头收。
+
+        funding 在每根被标记为结算的 K 线结算一次; 持仓规模以当前市值计。
+        """
+        fr = candle.get("funding_rate", None)
+        if fr is None or self.position == 0 or price <= 0:
+            return
+        notional = abs(self.position) * price
+        if self.position > 0:
+            self.balance -= notional * fr   # 多头支付资金费
+        else:
+            self.balance += notional * fr   # 空头收取资金费
+
     def _execute_buy(self, price: float, slippage: float, time: Any, bar_idx: int = -1):
         """Execute a buy (long entry) order with position sizing.
 
@@ -614,9 +627,15 @@ class BacktestEngine:
     def _execute_short(self, price: float, slippage: float, time: Any, bar_idx: int = -1):
         """Open a short position (sell to open).
 
-        Locks `position_size` fraction of balance as margin.
-        Position is tracked as negative value (self.position = -short_size).
-        Slippage is subtracted from execution price (worse fill for short entry).
+        Symmetric to a long: the short sale RECEIVES proceeds (credited to balance)
+        and the entry taker fee is debited. Position is tracked as negative value
+        (self.position = -short_size). Slippage is subtracted from execution price
+        (worse fill for short entry).
+
+        This replaces the old `balance -= allocation` margin model, which drained
+        the entire margin from balance and produced an equity curve that collapsed
+        to ~0 while the short was held — corrupting Sharpe/Sortino/max-drawdown/
+        total-return for every short-holding strategy.
 
         No-op if allow_short=False or a position is already open.
         """
@@ -628,12 +647,15 @@ class BacktestEngine:
         cost_after_fee = allocation * (1.0 - self.fee_rate)
         short_size = cost_after_fee / exec_price
 
+        # 空头开仓 = 借入卖出: proceeds 计入 balance, 再扣开仓手续费。
+        # 配合统一权益公式 equity = balance + position*price, 持仓期间权益自洽。
+        self.balance += cost_after_fee            # 借入卖出所得 proceeds
+        self.balance -= allocation * self.fee_rate   # 开仓 taker 手续费
+
         self.position = -short_size
         self.short_entry_price = exec_price
         self.short_entry_idx = bar_idx
-        self._short_margin = allocation  # track margin locked
-        self.balance -= allocation
-
+        self._short_margin = cost_after_fee   # 仅作记录, 平仓不再返还此值
         self.trades.append({
             "type": "short",
             "price": round(exec_price, 8),
@@ -646,8 +668,9 @@ class BacktestEngine:
         """Close a short position (buy to cover).
 
         Realized PnL = (short_entry_price - exit_price) * abs(position).
-        Returns margin + PnL - fees to balance.
-        Slippage is added to buy-back price (worse fill for covering).
+        The proceeds were already credited to balance at open, so here we only
+        debit the buy-back cost + exit fee. Slippage is added to buy-back price
+        (worse fill for covering).
 
         No-op if no short position is open (position >= 0).
         """
@@ -659,13 +682,12 @@ class BacktestEngine:
         buy_cost = short_size * exec_price
         fee_cost = buy_cost * self.fee_rate
 
-        # PnL = (entry - exit) * size
+        # PnL = (entry - exit) * size (与多头 pnl 口径一致: 不含手续费)
         realized_pnl = (self.short_entry_price - exec_price) * short_size
         entry_idx = self.short_entry_idx
 
-        # Balance: return margin + realized PnL - fees
-        margin_return = getattr(self, '_short_margin', self.balance * self.position_size)
-        self.balance += margin_return + realized_pnl - fee_cost
+        # 买回借入资产并支付平仓手续费 (proceeds 已在开仓时计入 balance)
+        self.balance -= (buy_cost + fee_cost)
 
         pnl_pct = ((self.short_entry_price / exec_price) - 1.0) * 100 if exec_price > 0 else 0
 
