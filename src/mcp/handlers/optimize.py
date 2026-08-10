@@ -31,7 +31,8 @@ def optimize_bayesian(
         }
 
     try:
-        from engines.backtest import BacktestEngine
+        from engines import get_engine
+        BacktestEngine = get_engine("backtest").BacktestEngine
     except ImportError:
         return {
             "status": "error",

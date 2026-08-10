@@ -8,7 +8,10 @@ if _proj_root not in sys.path:
 from typing import Dict, Any, Optional
 import json
 
-from engines.backtest import BacktestEngine, run_backtest
+# 经引擎统一注册表取用，避免硬编码具体实现
+from engines import get_engine
+BacktestEngine = get_engine("backtest").BacktestEngine
+run_backtest = get_engine("backtest").run_backtest
 from core_lib.strategy_base import list_strategies, get_strategy
 
 

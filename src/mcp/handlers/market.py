@@ -169,7 +169,8 @@ def price_alert(
     condition: price_above / price_below / rsi_above / rsi_below
     """
     try:
-        from engines.alert import get_price as _get_price
+        from engines import get_engine
+        _get_price = get_engine("alert").get_price
         current = _get_price(symbol)
         if current is None:
             return {"status": "error", "error": f"Unable to fetch price for {symbol}"}

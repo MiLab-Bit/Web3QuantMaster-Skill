@@ -21,7 +21,10 @@ def portfolio_analysis(
       - portfolio_json: JSON string with {"holdings": [{"symbol", "value"}]}
     """
     try:
-        from engines.portfolio import analyze_portfolio, load_from_csv
+        from engines import get_engine
+        _portfolio = get_engine("portfolio")
+        analyze_portfolio = _portfolio.analyze_portfolio
+        load_from_csv = _portfolio.load_from_csv
 
         if holdings_csv and os.path.isfile(holdings_csv):
             holdings = load_from_csv(holdings_csv)
@@ -79,7 +82,11 @@ def portfolio_rebalance(
 ) -> Dict[str, Any]:
     """Generate rebalancing suggestions for a portfolio."""
     try:
-        from engines.portfolio import analyze_portfolio, suggest_rebalance, load_from_csv
+        from engines import get_engine
+        _portfolio = get_engine("portfolio")
+        analyze_portfolio = _portfolio.analyze_portfolio
+        suggest_rebalance = _portfolio.suggest_rebalance
+        load_from_csv = _portfolio.load_from_csv
         import json
 
         if holdings_csv and os.path.isfile(holdings_csv):
@@ -118,7 +125,10 @@ def portfolio_optimal_allocation(
 ) -> Dict[str, Any]:
     """Suggest optimal allocation based on rules (no numpy required)."""
     try:
-        from engines.portfolio import suggest_optimal_allocation, load_from_csv
+        from engines import get_engine
+        _portfolio = get_engine("portfolio")
+        suggest_optimal_allocation = _portfolio.suggest_optimal_allocation
+        load_from_csv = _portfolio.load_from_csv
         import json
 
         if holdings_csv and os.path.isfile(holdings_csv):
