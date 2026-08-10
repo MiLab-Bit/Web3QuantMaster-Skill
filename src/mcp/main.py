@@ -23,34 +23,10 @@ PROTOCOL_VERSION = "2024-11-05"
 # Standardized Error Codes (v3.5.0)
 # =============================================================================
 
-class MCPErrorCode:
-    """Standardized error codes for all MCP tool responses."""
-    TOOL_NOT_FOUND = "TOOL_NOT_FOUND"
-    TOOL_UNAVAILABLE = "TOOL_UNAVAILABLE"
-    INVALID_ARGS = "INVALID_ARGS"
-    DATA_FETCH_FAILED = "DATA_FETCH_FAILED"
-    DATA_EMPTY = "DATA_EMPTY"
-    BACKTEST_FAILED = "BACKTEST_FAILED"
-    RISK_CALC_FAILED = "RISK_CALC_FAILED"
-    API_KEY_MISSING = "API_KEY_MISSING"
-    API_RATE_LIMIT = "API_RATE_LIMIT"
-    API_TIMEOUT = "API_TIMEOUT"
-    STRATEGY_UNKNOWN = "STRATEGY_UNKNOWN"
-    INTERNAL_ERROR = "INTERNAL_ERROR"
+# 单一事实来源：mcp/errors.py。此处仅复用，不再重复定义，
+# 以修复此前 main.py 与 errors.py 两份不一致（main.py 缺 TOOL_TIMEOUT）的死代码。
 
-
-def _tool_error(code: str, detail: str, **extra) -> dict:
-    """Build a standardized error response."""
-    result = {"error": code, "detail": detail}
-    result.update(extra)
-    return result
-
-
-def _tool_ok(data: dict = None, **extra) -> dict:
-    """Build a standardized success response."""
-    result = {"status": "ok", **(data or {})}
-    result.update(extra)
-    return result
+from mcp.errors import MCPErrorCode, tool_error as _tool_error, tool_ok as _tool_ok  # noqa: E402
 
 
 # =============================================================================

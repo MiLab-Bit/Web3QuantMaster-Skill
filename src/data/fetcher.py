@@ -59,7 +59,13 @@ try:
     from core_lib.config import DATA_DIR, BINANCE_BASE
 except ImportError:
     BINANCE_BASE = 'https://api.binance.com'
-    DATA_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', 'data', '_internal')
+
+# ── 统一异常 ─────────────────────────────────────
+# 使用 core_lib.exceptions 中规范定义的 DataFetchError（全仓唯一来源），
+# 不再在 fetcher 内重复定义，避免签名不兼容（message vs source）的两份实现。
+from core_lib.exceptions import DataFetchError  # noqa: E402
+
+DATA_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', 'data', '_internal')
 
 BINANCE_API = f'{BINANCE_BASE}/api/v3'
 
@@ -169,14 +175,6 @@ def save_to_cache(candles: List[Dict], symbol: str, interval: str, limit: int, t
 # ══════════════════════════════════════════════════
 
 
-class DataFetchError(Exception):
-    """Raised when data fetching fails for any reason."""
-    def __init__(self, message: str, source: str = "", symbol: str = ""):
-        super().__init__(message)
-        self.source = source
-        self.symbol = symbol
-
-
 def fetch_ohlcv(
     symbol: str,
     interval: str = '1h',
@@ -222,13 +220,14 @@ def fetch_ohlcv(
             data = _json.loads(resp.read())
         if isinstance(data, dict) and 'code' in data:
             raise DataFetchError(
-                f"Exchange API returned error code", source=source, symbol=symbol
+                source=source, symbol=symbol,
+                reason="Exchange API returned error code",
             )
         result = _parse_ohlcv(data, source)
         if not result:
             raise DataFetchError(
-                f"Exchange returned empty OHLCV data for {symbol} {interval}",
                 source=source, symbol=symbol,
+                reason=f"Exchange returned empty OHLCV data for {symbol} {interval}",
             )
         save_to_cache(result, symbol, interval, limit)
         return result
@@ -236,18 +235,18 @@ def fetch_ohlcv(
         raise
     except urllib.error.URLError as e:
         raise DataFetchError(
-            f"Network error fetching {symbol} from {source}: {e}",
             source=source, symbol=symbol,
+            reason=f"Network error fetching {symbol} from {source}: {e}",
         )
     except _json.JSONDecodeError as e:
         raise DataFetchError(
-            f"Invalid JSON response from {source} for {symbol}: {e}",
             source=source, symbol=symbol,
+            reason=f"Invalid JSON response from {source} for {symbol}: {e}",
         )
     except Exception as e:
         raise DataFetchError(
-            f"Unexpected error fetching {symbol} from {source}: {e}",
             source=source, symbol=symbol,
+            reason=f"Unexpected error fetching {symbol} from {source}: {e}",
         )
 
 
