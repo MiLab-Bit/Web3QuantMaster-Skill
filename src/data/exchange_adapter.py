@@ -29,6 +29,9 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
+# 统一异常（全仓唯一来源：core_lib.exceptions.DataFetchError）
+from core_lib.exceptions import DataFetchError
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -81,6 +84,34 @@ class ExchangeAdapter(ABC):
     @abstractmethod
     def fetch_orderbook(self, symbol: str, depth: int = 10) -> Optional[Dict]:
         """Fetch order book."""
+
+    # ── DataProviderProtocol 实现（OHLCV 源）────────────────────
+    # fetch_klines 已提供 OHLCV，这里用协议标准签名包装它，
+    # 空/None 时抛 DataFetchError（协议要求不得静默返回 []）。
+
+    def fetch_ohlcv(
+        self, symbol: str, interval: str = "4h", limit: int = 500
+    ) -> List[Dict[str, Any]]:
+        """DataProviderProtocol: 标准化 K 线获取（委托 ``fetch_klines``）。"""
+        candles = self.fetch_klines(symbol, interval, limit)
+        if not candles:
+            raise DataFetchError(
+                source=self.name, symbol=symbol,
+                reason=f"Empty OHLCV data for {symbol} {interval}",
+            )
+        return candles
+
+    def fetch_multi(
+        self, symbols: List[str], interval: str = "4h", limit: int = 500
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """DataProviderProtocol: 同步并发多币种 K 线。"""
+        result: Dict[str, List[Dict[str, Any]]] = {}
+        for sym in symbols:
+            try:
+                result[sym] = self.fetch_ohlcv(sym, interval, limit)
+            except DataFetchError:
+                result[sym] = []
+        return result
 
     def ping(self) -> bool:
         """Check if exchange is reachable."""

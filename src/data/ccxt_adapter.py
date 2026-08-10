@@ -175,6 +175,21 @@ class CCXTAdapter:
         import ccxt
         return ccxt.exchanges
 
+    def fetch_multi(
+        self, symbols: List[str], interval: str = '4h', limit: int = 100,
+        exchange: str = 'binance',
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """并发获取多币种 K 线（DataProviderProtocol 要求，同步接口）。
+
+        逐币种调用 ``fetch_ohlcv`` 并解包 ``CCXTResult``；仅收录成功的币种，
+        失败的币种其值为 ``[]``（不抛异常，保证返回结构稳定）。
+        """
+        result: Dict[str, List[Dict[str, Any]]] = {}
+        for sym in symbols:
+            r = self.fetch_ohlcv(sym, interval, limit, exchange)
+            result[sym] = r.data if (r.success and isinstance(r.data, list)) else []
+        return result
+
 
 # ── 降级 fetch：CCXT → 内置 REST ──
 

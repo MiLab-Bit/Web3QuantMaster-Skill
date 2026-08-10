@@ -73,8 +73,15 @@ CHAIN_CONFIGS = {
 }
 
 class MultiChain:
-    """Multi-chain connection manager"""
-    
+    """Multi-chain connection manager
+
+    注意：本类不是 OHLCV 数据提供方（链上 RPC：余额/区块/Gas），
+    不实现 ``core_lib.interfaces.DataProviderProtocol``。
+    已在 ``NON_OHLCV_PROVIDERS`` 中显式排除。
+    """
+    # 显式标记：非 OHLCV 源（供装配点与测试断言）
+    data_provider_protocol: bool = False
+
     def __init__(self, chain: str = 'bsc'):
         self.chain = chain
         self.config = CHAIN_CONFIGS.get(chain)

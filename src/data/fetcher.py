@@ -529,6 +529,70 @@ class QuickData:
 
 
 # ══════════════════════════════════════════════════
+# FetcherProvider — DataProviderProtocol 实现（类壳）
+# ══════════════════════════════════════════════════
+
+class FetcherProvider:
+    """``DataProviderProtocol`` 实现：把模块级 ``fetch_ohlcv`` / ``fetch_multi_async``
+    包成类实例，使统一数据网关可作为结构化数据提供方被装配点校验与替换。
+
+    Usage:
+        from data.fetcher import FetcherProvider
+        prov = FetcherProvider(source="binance")
+        candles = prov.fetch_ohlcv("BTCUSDT", "4h", 500)        # List[Dict]
+        multi   = prov.fetch_multi(["BTC","ETH"], "4h", 500)    # Dict[str, List[Dict]]
+    """
+
+    def __init__(self, source: str = "binance"):
+        self.source = source
+
+    def fetch_ohlcv(
+        self, symbol: str, interval: str = "4h", limit: int = 500,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """委托模块级 ``fetch_ohlcv``（保持同样缓存/异常契约）。"""
+        return fetch_ohlcv(symbol, interval=interval, limit=limit,
+                           source=self.source, **kwargs)
+
+    def fetch_multi(
+        self, symbols: List[str], interval: str = "4h", limit: int = 500,
+        **kwargs: Any,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """同步并发获取多币种 K 线。
+
+        内部运行 ``fetch_multi_async``；若在已运行的事件循环中则退化为顺序同步调用，
+        避免 ``asyncio.run`` 冲突。返回 ``Dict[symbol, List[Dict]]``（始终为 dict）。
+        """
+        try:
+            _asyncio.get_running_loop()
+            running = True
+        except RuntimeError:
+            running = False
+
+        if running:
+            return {
+                sym: fetch_ohlcv(sym, interval=interval, limit=limit,
+                                 source=self.source, **kwargs)
+                for sym in symbols
+            }
+        return _asyncio.run(
+            fetch_multi_async(symbols, interval=interval, limit=limit,
+                              source=self.source, **kwargs)
+        )
+
+
+_default_fetcher_provider: Optional["FetcherProvider"] = None
+
+
+def get_default_fetcher_provider() -> "FetcherProvider":
+    """Get or create the default ``FetcherProvider`` singleton (binance)."""
+    global _default_fetcher_provider
+    if _default_fetcher_provider is None:
+        _default_fetcher_provider = FetcherProvider()
+    return _default_fetcher_provider
+
+
+# ══════════════════════════════════════════════════
 # 导出
 # ══════════════════════════════════════════════════
 
@@ -538,5 +602,5 @@ __all__ = [
     'fetch_multi_async', 'generate_factors',
     'to_ccxt_symbol', 'is_cache_fresh',
     'EXCHANGE_ENDPOINTS', 'SYMBOL_FORMAT',
-    'QuickData',
+    'QuickData', 'FetcherProvider', 'get_default_fetcher_provider',
 ]

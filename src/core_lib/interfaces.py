@@ -66,9 +66,27 @@ class StrategyRegistryProtocol(Protocol):
 
 @runtime_checkable
 class DataProviderProtocol(Protocol):
-    """Contract for all data providers (exchange, on-chain, sentiment).
+    """Contract for **OHLCV candle** data providers only (exchange feeds).
 
-    Implementations: data.fetcher, data.onchain, data.client
+    This protocol is intentionally narrow: it describes sources that return
+    OHLCV candles (exchange REST/CCXT adapters, the unified fetcher). It does
+    NOT describe on-chain RPC clients, Dune query clients, or generic HTTP
+    clients — those are NOT OHLCV sources and must NOT implement this protocol
+    (see ``NON_OHLCV_PROVIDERS``).
+
+    Implementations:
+      - ``data.fetcher.FetcherProvider``  (unified gateway, primary source)
+      - ``data.ccxt_adapter.CCXTAdapter`` (CCXT-backed; ``fetch_ohlcv`` returns
+        a ``CCXTResult`` wrapper, ``fetch_multi`` unwraps to ``List[Dict]``)
+      - ``data.exchange_adapter.ExchangeAdapter`` (+ Binance/OKX/Bybit subclasses)
+
+    Contract for implementors:
+      - ``fetch_ohlcv`` MUST return ``List[Dict]`` (each dict:
+        ``timestamp/datetime/open/high/low/close/volume``) or RAISE
+        ``DataFetchError`` on network error / invalid symbol / empty response.
+        It must NOT silently return ``[]``.
+      - ``fetch_multi`` is SYNCHRONOUS and returns
+        ``Dict[symbol, List[Dict]]`` (a dict even if some symbols fail).
     """
 
     def fetch_ohlcv(
@@ -85,8 +103,20 @@ class DataProviderProtocol(Protocol):
     def fetch_multi(
         self, symbols: List[str], interval: str = "4h", limit: int = 500
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Fetch OHLCV for multiple symbols concurrently."""
+        """Fetch OHLCV for multiple symbols concurrently (synchronous)."""
         ...
+
+
+# Modules that intentionally do NOT provide OHLCV candles and therefore must
+# NOT be treated as DataProviderProtocol implementors. This is the explicit
+# "non-OHLCV source" marker requested by the Step6 handoff, so the assembly
+# point (data/__init__.py) and tests can assert the exclusion.
+NON_OHLCV_PROVIDERS = frozenset([
+    "data.multichain.MultiChain",   # chain RPC (web3), balances/blocks/gas
+    "data.dune_integration.DuneAPI",  # Dune Analytics query client
+    "data.client.DataClient",         # generic rate-limited HTTP client
+    "data.onchain.*",                 # forensics / tx decoding / MEV monitor
+])
 
 
 # =============================================================================

@@ -16,8 +16,15 @@ load_dotenv()
 
 
 class DuneAPI:
-    """Dune Analytics API client for executing and retrieving queries."""
-    
+    """Dune Analytics API client for executing and retrieving queries.
+
+    注意：本类不是 OHLCV 数据提供方（Dune 查询客户端），
+    不实现 ``core_lib.interfaces.DataProviderProtocol``。
+    已在 ``NON_OHLCV_PROVIDERS`` 中显式排除。
+    """
+    # 显式标记：非 OHLCV 源（供装配点与测试断言）
+    data_provider_protocol: bool = False
+
     BASE_URL = "https://api.dune.com/api/v1"
     
     def __init__(self, api_key: Optional[str] = None):
