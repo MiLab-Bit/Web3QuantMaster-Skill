@@ -195,3 +195,55 @@ HANDLERS = {
     "onchain_nupl": onchain_nupl,
     "onchain_exchange_flow": onchain_exchange_flow,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "onchain_mvrv",
+        "description": "Get BTC/ETH MVRV Z-Score for valuation (>>7=overvalued, <2=undervalued)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "asset": {"type": "string", "default": "BTC"},
+                "interval": {"type": "string", "default": "24h"},
+            },
+        },
+        "handler": onchain_mvrv,
+    },
+    {
+        "name": "onchain_sopr",
+        "description": "Get SOPR (Spent Output Profit Ratio); >1=profit taking, <1=loss selling",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "asset": {"type": "string", "default": "BTC"},
+                "interval": {"type": "string", "default": "24h"},
+            },
+        },
+        "handler": onchain_sopr,
+    },
+    {
+        "name": "onchain_nupl",
+        "description": "Get NUPL (Net Unrealized Profit/Loss) for market cycle detection",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "asset": {"type": "string", "default": "BTC"},
+                "interval": {"type": "string", "default": "24h"},
+            },
+        },
+        "handler": onchain_nupl,
+    },
+    {
+        "name": "onchain_exchange_flow",
+        "description": "Get exchange net flow: positive=inflow(sell pressure), negative=outflow(accumulation)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "asset": {"type": "string", "default": "BTC"},
+                "interval": {"type": "string", "default": "24h"},
+            },
+        },
+        "handler": onchain_exchange_flow,
+    },
+]

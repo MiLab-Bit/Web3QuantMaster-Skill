@@ -240,3 +240,72 @@ HANDLERS = {
     "wallet_profile": wallet_profile,
     "search_wallets": search_wallets,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "smart_money_screener",
+        "description": "Token screener filtered for smart money accumulation — find tokens smart money is buying",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chain": {"type": "string", "enum": ["ethereum", "solana", "arbitrum", "base", "polygon", "optimism", "bsc"], "default": "ethereum"},
+                "timeframe": {"type": "string", "enum": ["1h", "24h", "7d", "30d"], "default": "24h"},
+                "limit": {"type": "integer", "default": 20},
+            },
+        },
+        "handler": smart_money_screener,
+    },
+    {
+        "name": "smart_money_netflow",
+        "description": "Smart money net flow — direction and magnitude of smart money flows per token",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chain": {"type": "string", "enum": ["ethereum", "solana", "arbitrum", "base"], "default": "ethereum"},
+                "labels": {"type": "string", "default": "Smart Trader"},
+                "limit": {"type": "integer", "default": 10},
+            },
+        },
+        "handler": smart_money_netflow,
+    },
+    {
+        "name": "token_flow_intelligence",
+        "description": "Token flow by wallet label — who is buying/selling a specific token",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "token": {"type": "string", "description": "Token contract address"},
+                "chain": {"type": "string", "enum": ["ethereum", "solana", "arbitrum", "base"], "default": "ethereum"},
+            },
+            "required": ["token"],
+        },
+        "handler": token_flow_intelligence,
+    },
+    {
+        "name": "wallet_profile",
+        "description": "Profile a wallet: balance, labels, PnL, counterparties",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "address": {"type": "string", "description": "Wallet address (0x... or Solana)"},
+                "chain": {"type": "string", "enum": ["ethereum", "solana", "arbitrum", "base"], "default": "ethereum"},
+                "include_pnl": {"type": "boolean", "default": False},
+            },
+            "required": ["address"],
+        },
+        "handler": wallet_profile,
+    },
+    {
+        "name": "search_wallets",
+        "description": "Search for wallets by name or label (e.g., 'Vitalik', 'Wintermute')",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search term"},
+            },
+            "required": ["query"],
+        },
+        "handler": search_wallets,
+    },
+]

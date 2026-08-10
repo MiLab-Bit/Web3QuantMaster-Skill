@@ -162,3 +162,44 @@ HANDLERS = {
     "portfolio_rebalance": portfolio_rebalance,
     "portfolio_optimal_allocation": portfolio_optimal_allocation,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "portfolio_analysis",
+        "description": "Portfolio analysis: asset correlation, concentration, rebalancing suggestions",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "holdings_csv": {"type": "string", "default": ""},
+                "portfolio_json": {"type": "string", "default": ""},
+            },
+        },
+        "handler": portfolio_analysis,
+    },
+    {
+        "name": "portfolio_rebalance",
+        "description": "Portfolio rebalancing suggestions based on risk rules",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "holdings_csv": {"type": "string", "default": ""},
+                "portfolio_json": {"type": "string", "default": ""},
+            },
+        },
+        "handler": portfolio_rebalance,
+    },
+    {
+        "name": "portfolio_optimal_allocation",
+        "description": "Suggest optimal allocation (rules-based, no numpy required)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "holdings_csv": {"type": "string", "default": ""},
+                "portfolio_json": {"type": "string", "default": ""},
+                "risk_tolerance": {"type": "string", "enum": ["conservative", "moderate", "aggressive"], "default": "moderate"},
+            },
+        },
+        "handler": portfolio_optimal_allocation,
+    },
+]

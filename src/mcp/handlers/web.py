@@ -189,3 +189,62 @@ HANDLERS = {
     "web_crawl": web_crawl,
     "narrative_scan": narrative_scan,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "web_search",
+        "description": "Real-time web search for market narrative tracking and news monitoring",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "search_depth": {"type": "string", "enum": ["basic", "advanced"], "default": "basic"},
+                "topic": {"type": "string", "enum": ["general", "news"], "default": "general"},
+                "max_results": {"type": "integer", "default": 10},
+                "include_answer": {"type": "boolean", "default": True},
+            },
+            "required": ["query"],
+        },
+        "handler": web_search,
+    },
+    {
+        "name": "web_extract",
+        "description": "Extract clean content from web pages by URL",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "urls": {"type": "string", "description": "Comma-separated URLs"},
+            },
+            "required": ["urls"],
+        },
+        "handler": web_extract,
+    },
+    {
+        "name": "web_crawl",
+        "description": "Crawl a website starting from a URL",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Starting URL"},
+                "max_depth": {"type": "integer", "default": 1},
+                "max_pages": {"type": "integer", "default": 10},
+            },
+            "required": ["url"],
+        },
+        "handler": web_crawl,
+    },
+    {
+        "name": "narrative_scan",
+        "description": "Scan for market narratives around a topic — news + AI summary",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Topic: e.g., 'AI tokens crypto', 'DePIN narrative'"},
+                "max_results": {"type": "integer", "default": 15},
+            },
+            "required": ["query"],
+        },
+        "handler": narrative_scan,
+    },
+]

@@ -263,3 +263,82 @@ HANDLERS = {
     "get_crypto_price": get_crypto_price,
     "available_exchanges": available_exchanges,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "market_fear_greed",
+        "description": "Get Fear & Greed Index (0-100) with Chinese interpretation",
+        "input_schema": {"type": "object", "properties": {}},
+        "handler": market_fear_greed,
+    },
+    {
+        "name": "market_funding_rate",
+        "description": "Get perpetual funding rate; annualized >±30% = extreme sentiment",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTC/USDT:USDT"},
+            },
+        },
+        "handler": market_funding_rate,
+    },
+    {
+        "name": "market_liquidation_map",
+        "description": "Get long/short account ratio to detect position crowding",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+            },
+        },
+        "handler": market_liquidation_map,
+    },
+    {
+        "name": "available_exchanges",
+        "description": "List all supported exchanges (100+ via CCXT)",
+        "input_schema": {"type": "object", "properties": {}},
+        "handler": available_exchanges,
+    },
+    {
+        "name": "price_alert",
+        "description": "Set price alert with trigger condition; supports webhook notification",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "condition": {"type": "string", "enum": ["price_above", "price_below"], "default": "price_above"},
+                "threshold": {"type": "number", "default": 70000},
+                "webhook_url": {"type": "string", "default": ""},
+            },
+            "required": ["symbol", "condition", "threshold"],
+        },
+        "handler": price_alert,
+    },
+    {
+        "name": "narrative_tracking",
+        "description": "Narrative tracking: analyze narrative popularity on Twitter/Reddit",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "default": "AI"},
+                "lookback_days": {"type": "integer", "default": 7},
+            },
+            "required": ["topic"],
+        },
+        "handler": narrative_tracking,
+    },
+    {
+        "name": "get_crypto_price",
+        "description": "Get cryptocurrency price from CoinGecko (no API key required)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coin_id": {"type": "string", "default": "bitcoin"},
+                "currency": {"type": "string", "default": "usd"},
+            },
+            "required": ["coin_id"],
+        },
+        "handler": get_crypto_price,
+    },
+]

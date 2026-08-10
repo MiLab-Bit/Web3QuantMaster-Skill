@@ -145,3 +145,43 @@ HANDLERS = {
     "run_backtest": run_strategy_backtest,
     "list_strategies": list_available_strategies,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "strategy_diagnosis",
+        "description": "Diagnose trading strategy: parse description, compute indicator signals",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "Strategy description"},
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "interval": {"type": "string", "default": "4h"},
+            },
+            "required": ["description"],
+        },
+        "handler": strategy_diagnosis,
+    },
+    {
+        "name": "run_backtest",
+        "description": "Run backtest for given strategy and parameters",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "interval": {"type": "string", "default": "4h"},
+                "strategy": {"type": "string", "default": "ma_cross"},
+                "params_json": {"type": "string", "default": ""},
+                "lookback_days": {"type": "integer", "default": 90},
+                "initial_balance": {"type": "number", "default": 10000},
+            },
+        },
+        "handler": run_strategy_backtest,
+    },
+    {
+        "name": "list_strategies",
+        "description": "List all available trading strategies",
+        "input_schema": {"type": "object", "properties": {}},
+        "handler": list_available_strategies,
+    },
+]

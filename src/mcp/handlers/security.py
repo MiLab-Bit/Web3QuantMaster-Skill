@@ -176,3 +176,33 @@ HANDLERS = {
     "security_approval_scan": security_approval_scan,
     "security_rug_pull_check": security_rug_pull_check,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "security_approval_scan",
+        "description": "Scan address for token approvals (risk of unauthorized spending)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "address": {"type": "string"},
+                "chain": {"type": "string", "default": "ethereum"},
+            },
+            "required": ["address"],
+        },
+        "handler": security_approval_scan,
+    },
+    {
+        "name": "security_rug_pull_check",
+        "description": "Check token for rug pull risk (honeypot, high tax, mintable, etc.)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "token_address": {"type": "string"},
+                "chain": {"type": "string", "default": "ethereum"},
+            },
+            "required": ["token_address"],
+        },
+        "handler": security_rug_pull_check,
+    },
+]

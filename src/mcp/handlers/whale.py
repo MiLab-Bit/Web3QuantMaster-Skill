@@ -105,3 +105,30 @@ HANDLERS = {
     "whale_alerts": whale_alerts,
     "polymarket_events": polymarket_events,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "whale_alerts",
+        "description": "Monitor large on-chain transfers (default >$1M)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coin": {"type": "string", "default": "bitcoin"},
+                "min_value_usd": {"type": "integer", "default": 1000000},
+            },
+        },
+        "handler": whale_alerts,
+    },
+    {
+        "name": "polymarket_events",
+        "description": "Get Polymarket热门预测事件与概率",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 10},
+            },
+        },
+        "handler": polymarket_events,
+    },
+]

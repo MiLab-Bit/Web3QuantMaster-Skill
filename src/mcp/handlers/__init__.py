@@ -1,18 +1,18 @@
 """MCP handlers registry — import all handler modules here"""
-from mcp.handlers.strategy import HANDLERS as STRATEGY_HANDLERS
-from mcp.handlers.risk import HANDLERS as RISK_HANDLERS
-from mcp.handlers.data import HANDLERS as DATA_HANDLERS
-from mcp.handlers.market import HANDLERS as MARKET_HANDLERS
-from mcp.handlers.portfolio import HANDLERS as PORTFOLIO_HANDLERS
-from mcp.handlers.onchain import HANDLERS as ONCHAIN_HANDLERS
-from mcp.handlers.defi import HANDLERS as DEFI_HANDLERS
-from mcp.handlers.security import HANDLERS as SECURITY_HANDLERS
-from mcp.handlers.chain import HANDLERS as CHAIN_HANDLERS
-from mcp.handlers.whale import HANDLERS as WHALE_HANDLERS
-from mcp.handlers.optimize import HANDLERS as OPTIMIZE_HANDLERS
-from mcp.handlers.knowledge import HANDLERS as KNOWLEDGE_HANDLERS
-from mcp.handlers.nansen import HANDLERS as NANSEN_HANDLERS
-from mcp.handlers.web import HANDLERS as WEB_HANDLERS
+from mcp.handlers.strategy import HANDLERS as STRATEGY_HANDLERS, TOOLS as STRATEGY_TOOLS
+from mcp.handlers.risk import HANDLERS as RISK_HANDLERS, TOOLS as RISK_TOOLS
+from mcp.handlers.data import HANDLERS as DATA_HANDLERS, TOOLS as DATA_TOOLS
+from mcp.handlers.market import HANDLERS as MARKET_HANDLERS, TOOLS as MARKET_TOOLS
+from mcp.handlers.portfolio import HANDLERS as PORTFOLIO_HANDLERS, TOOLS as PORTFOLIO_TOOLS
+from mcp.handlers.onchain import HANDLERS as ONCHAIN_HANDLERS, TOOLS as ONCHAIN_TOOLS
+from mcp.handlers.defi import HANDLERS as DEFI_HANDLERS, TOOLS as DEFI_TOOLS
+from mcp.handlers.security import HANDLERS as SECURITY_HANDLERS, TOOLS as SECURITY_TOOLS
+from mcp.handlers.chain import HANDLERS as CHAIN_HANDLERS, TOOLS as CHAIN_TOOLS
+from mcp.handlers.whale import HANDLERS as WHALE_HANDLERS, TOOLS as WHALE_TOOLS
+from mcp.handlers.optimize import HANDLERS as OPTIMIZE_HANDLERS, TOOLS as OPTIMIZE_TOOLS
+from mcp.handlers.knowledge import HANDLERS as KNOWLEDGE_HANDLERS, TOOLS as KNOWLEDGE_TOOLS
+from mcp.handlers.nansen import HANDLERS as NANSEN_HANDLERS, TOOLS as NANSEN_TOOLS
+from mcp.handlers.web import HANDLERS as WEB_HANDLERS, TOOLS as WEB_TOOLS
 
 # Merge all handlers into ALL_HANDLERS
 ALL_HANDLERS = {}
@@ -31,8 +31,27 @@ ALL_HANDLERS.update(KNOWLEDGE_HANDLERS)
 ALL_HANDLERS.update(NANSEN_HANDLERS)
 ALL_HANDLERS.update(WEB_HANDLERS)
 
+# Aggregate tool self-registration metadata (Step4-B). Order follows import order;
+# each entry is {"name", "description", "input_schema", "handler"}.
+ALL_TOOLS = []
+ALL_TOOLS.extend(STRATEGY_TOOLS)
+ALL_TOOLS.extend(RISK_TOOLS)
+ALL_TOOLS.extend(DATA_TOOLS)
+ALL_TOOLS.extend(MARKET_TOOLS)
+ALL_TOOLS.extend(PORTFOLIO_TOOLS)
+ALL_TOOLS.extend(ONCHAIN_TOOLS)
+ALL_TOOLS.extend(DEFI_TOOLS)
+ALL_TOOLS.extend(SECURITY_TOOLS)
+ALL_TOOLS.extend(CHAIN_TOOLS)
+ALL_TOOLS.extend(WHALE_TOOLS)
+ALL_TOOLS.extend(OPTIMIZE_TOOLS)
+ALL_TOOLS.extend(KNOWLEDGE_TOOLS)
+ALL_TOOLS.extend(NANSEN_TOOLS)
+ALL_TOOLS.extend(WEB_TOOLS)
+
 __all__ = [
     "ALL_HANDLERS",
+    "ALL_TOOLS",
     "STRATEGY_HANDLERS",
     "RISK_HANDLERS",
     "DATA_HANDLERS",

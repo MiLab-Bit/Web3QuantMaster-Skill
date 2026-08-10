@@ -318,3 +318,84 @@ HANDLERS = {
     "dune_get_result": dune_get_result,
     "dune_preset_query": dune_preset_query,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "factor_analysis",
+        "description": "Factor analysis: compute IC between factors and future returns",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "interval": {"type": "string", "default": "4h"},
+                "factors": {"type": "string", "default": "RSI,MACD,BOLL,ADX,OBV"},
+                "method": {"type": "string", "enum": ["ic", "pearson", "spearman"], "default": "ic"},
+            },
+        },
+        "handler": factor_analysis,
+    },
+    {
+        "name": "dune_run_query",
+        "description": "Execute a Dune Analytics query by ID and return results",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query_id": {"type": "integer", "description": "Dune query ID"},
+            },
+            "required": ["query_id"],
+        },
+        "handler": dune_run_query,
+    },
+    {
+        "name": "dune_get_result",
+        "description": "Get the latest cached result of a Dune query",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query_id": {"type": "integer", "description": "Dune query ID"},
+                "format": {"type": "string", "enum": ["json", "csv"], "default": "json"},
+            },
+            "required": ["query_id"],
+        },
+        "handler": dune_get_result,
+    },
+    {
+        "name": "dune_preset_query",
+        "description": "Run a pre-built Dune query (dex_volume_24h, stablecoin_supply, nft_trades_24h, eth_gas_prices)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "enum": ["dex_volume_24h", "stablecoin_supply", "nft_trades_24h", "eth_gas_prices"]},
+            },
+            "required": ["name"],
+        },
+        "handler": dune_preset_query,
+    },
+    {
+        "name": "search_knowledge",
+        "description": "Search Web3QuantMaster knowledge base (RAG)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
+            },
+            "required": ["query"],
+        },
+        "handler": search_knowledge,
+    },
+    {
+        "name": "semantic_search",
+        "description": "本地语义+关键词混合检索知识库（refs/ 下 Markdown，离线、无需 API）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "检索问题/关键词"},
+                "limit": {"type": "integer", "default": 10},
+            },
+            "required": ["query"],
+        },
+        "handler": semantic_search,
+    },
+]

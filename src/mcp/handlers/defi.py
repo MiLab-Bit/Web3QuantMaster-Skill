@@ -83,3 +83,19 @@ HANDLERS = {
     "defi_tvl": defi_tvl,
     "defi_stablecoin_mcap": defi_stablecoin_mcap,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "defi_tvl",
+        "description": "Get DeFi total value locked (TVL) top protocols (DeFiLlama, no key)",
+        "input_schema": {"type": "object", "properties": {}},
+        "handler": defi_tvl,
+    },
+    {
+        "name": "defi_stablecoin_mcap",
+        "description": "Get major stablecoin market caps (CoinGecko)",
+        "input_schema": {"type": "object", "properties": {}},
+        "handler": defi_stablecoin_mcap,
+    },
+]

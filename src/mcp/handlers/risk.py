@@ -123,9 +123,107 @@ def risk_garch(returns_json: str, confidence: float = 0.95) -> Dict[str, Any]:
         return {"error": f"GARCH calculation failed: {str(e)}"}
 
 
+def risk_cross_protocol(holdings: Optional[List[Dict]] = None) -> Dict[str, Any]:
+    """Cross-protocol contagion risk scan (CeFi/DeFi concentration).
+
+    Computes protocol-level concentration from holdings
+    [{symbol, protocol, value_pct}, ...] and flags contagion risk.
+    """
+    if not holdings:
+        return {"error": "No holdings provided for cross-protocol risk scan"}
+    try:
+        total = sum(float(h.get("value_pct", 0)) for h in holdings)
+        by_protocol: Dict[str, float] = {}
+        for h in holdings:
+            proto = h.get("protocol", "unknown")
+            by_protocol[proto] = by_protocol.get(proto, 0.0) + float(h.get("value_pct", 0))
+        max_proto = max(by_protocol, key=by_protocol.get) if by_protocol else None
+        max_pct = by_protocol[max_proto] if max_proto else 0.0
+        concentration = max_pct / total if total else 0.0
+        level = "high" if concentration > 0.5 else ("medium" if concentration > 0.3 else "low")
+        return {
+            "status": "ok",
+            "holdings_count": len(holdings),
+            "total_value_pct": round(total, 2),
+            "protocol_concentration": {p: round(v, 2) for p, v in by_protocol.items()},
+            "max_protocol": max_proto,
+            "max_protocol_pct": round(max_pct, 2),
+            "contagion_risk": level,
+            "message": f"{level} cross-protocol concentration in {max_proto}",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # Handler registry
 HANDLERS = {
     "risk_assessment": risk_assessment,
     "risk_var": risk_var,
     "risk_garch": risk_garch,
+    "risk_cross_protocol": risk_cross_protocol,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "risk_assessment",
+        "description": "Assess portfolio risk: VaR, max drawdown, concentration",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "holdings_csv": {"type": "string", "default": ""},
+                "portfolio_json": {"type": "string", "default": ""},
+            },
+        },
+        "handler": risk_assessment,
+    },
+    {
+        "name": "risk_var",
+        "description": "Calculate VaR (Value at Risk) and CVaR for portfolio",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "returns_json": {"type": "string", "description": "JSON array of returns"},
+                "confidence": {"type": "number", "default": 0.95},
+                "capital": {"type": "number", "default": 10000},
+            },
+            "required": ["returns_json"],
+        },
+        "handler": risk_var,
+    },
+    {
+        "name": "risk_garch",
+        "description": "Calculate GARCH-based VaR/CVaR",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "returns_json": {"type": "string", "description": "JSON array of returns"},
+                "confidence": {"type": "number", "default": 0.95},
+            },
+            "required": ["returns_json"],
+        },
+        "handler": risk_garch,
+    },
+    {
+        "name": "risk_cross_protocol",
+        "description": "Cross-protocol contagion risk scan (CeFi/DeFi concentration)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "holdings": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {"type": "string"},
+                            "protocol": {"type": "string"},
+                            "value_pct": {"type": "number"},
+                        },
+                    },
+                },
+            },
+            "required": ["holdings"],
+        },
+        "handler": risk_cross_protocol,
+    },
+]

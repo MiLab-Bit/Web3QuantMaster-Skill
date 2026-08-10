@@ -154,3 +154,59 @@ HANDLERS = {
     "data_fetch_orderbook": data_fetch_orderbook,
     "data_quality_check": data_quality_check,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "data_fetch_ohlcv",
+        "description": "Fetch OHLCV kline data from exchanges",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "interval": {"type": "string", "default": "4h"},
+                "limit": {"type": "integer", "default": 100},
+                "exchange": {"type": "string", "default": "binance"},
+            },
+        },
+        "handler": data_fetch_ohlcv,
+    },
+    {
+        "name": "data_fetch_ticker",
+        "description": "Fetch current ticker for trading pair",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "exchange": {"type": "string", "default": "binance"},
+            },
+        },
+        "handler": data_fetch_ticker,
+    },
+    {
+        "name": "data_fetch_orderbook",
+        "description": "Fetch order book for a trading pair",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "limit": {"type": "integer", "default": 10},
+                "exchange": {"type": "string", "default": "binance"},
+            },
+        },
+        "handler": data_fetch_orderbook,
+    },
+    {
+        "name": "data_quality_check",
+        "description": "Check data quality: missing bars, outliers, timestamp errors",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "interval": {"type": "string", "default": "4h"},
+                "lookback_days": {"type": "integer", "default": 30},
+            },
+        },
+        "handler": data_quality_check,
+    },
+]

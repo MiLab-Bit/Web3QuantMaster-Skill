@@ -105,3 +105,22 @@ def optimize_bayesian(
 HANDLERS = {
     "optimize_bayesian": optimize_bayesian,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "optimize_bayesian",
+        "description": "Bayesian parameter optimization via Optuna (10-100x faster than grid search)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "strategy": {"type": "string", "enum": ["ma_cross", "rsi", "bollinger"], "default": "ma_cross"},
+                "symbol": {"type": "string", "default": "BTCUSDT"},
+                "interval": {"type": "string", "default": "1h"},
+                "n_trials": {"type": "integer", "default": 50},
+                "lookback_days": {"type": "integer", "default": 90},
+            },
+        },
+        "handler": optimize_bayesian,
+    },
+]

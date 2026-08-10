@@ -107,3 +107,41 @@ HANDLERS = {
     "get_token_balance": get_token_balance,
     "list_chains": list_chains,
 }
+
+# Tool self-registration metadata (name/description/schema/handler co-located with impl)
+TOOLS = [
+    {
+        "name": "list_chains",
+        "description": "List all supported blockchains",
+        "input_schema": {"type": "object", "properties": {}},
+        "handler": list_chains,
+    },
+    {
+        "name": "query_chain",
+        "description": "Query on-chain data (balance/block_number/gas_price)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chain": {"type": "string", "enum": ["ethereum", "bsc", "arbitrum", "optimism", "base", "solana", "fantom", "ronin"]},
+                "address": {"type": "string"},
+                "action": {"type": "string", "enum": ["balance", "block_number", "gas_price"]},
+            },
+            "required": ["chain", "address", "action"],
+        },
+        "handler": query_chain,
+    },
+    {
+        "name": "get_token_balance",
+        "description": "Get ERC-20 token balance for an address",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chain": {"type": "string"},
+                "address": {"type": "string"},
+                "token_address": {"type": "string"},
+            },
+            "required": ["chain", "address", "token_address"],
+        },
+        "handler": get_token_balance,
+    },
+]
