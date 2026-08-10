@@ -547,3 +547,51 @@ class TestDisconnect:
         result, msg = sim_bridge.connect()
         assert result
         assert sim_bridge.is_connected
+
+
+# =============================================================================
+# Test: SIM 模式下单不下发 + LIVE 默认锁 (HANDOFF §6 决策点 b)
+# =============================================================================
+
+class TestSimNoDispatchAndLiveGate:
+
+    def test_sim_orders_are_local_only(self, sim_bridge):
+        """SIM 模式订单只在本地账本记录，不向任何交易所发起真实请求。"""
+        result = sim_bridge.submit_order(
+            "BTC/USDT", "buy", "market", 0.01, 50000.0,
+        )
+        assert result.success
+        assert result.status == OrderStatus.FILLED
+        # 订单进入本地历史，且无需真实客户端
+        history = sim_bridge.get_order_history()
+        assert any(h.symbol == "BTC/USDT" for h in history)
+        # SIM 模式不建立真实交易所连接（无网络/无凭据也能跑）
+        assert sim_bridge._client is None
+
+    def test_sim_engine_local_only(self, sim_engine):
+        """SIM 引擎开平仓全部本地模拟，不触网。"""
+        r = sim_engine.open_position("BTC/USDT", "long", 50000.0, 0.01)
+        assert r["success"]
+        # 持仓应被本地记录（未平仓，total_trades 仍计平仓数）
+        assert len(sim_engine.get_positions()) == 1
+
+    def test_live_mode_blocked_by_default(self):
+        """默认 LIVE 模式（WQM_ALLOW_LIVE 未设置）下单被硬拒绝，绝不下发真实订单。"""
+        import os
+        assert os.environ.get("WQM_ALLOW_LIVE", "0") != "1"  # 默认安全
+        bridge = LiveTradeBridge(exchange="binance", mode=ExecutionMode.LIVE)
+        result = bridge.submit_order(
+            "BTC/USDT", "buy", "market", 0.01, 50000.0,
+        )
+        assert not result.success
+        assert result.status == OrderStatus.REJECTED
+        assert "LIVE mode is disabled" in result.reason
+
+    def test_confirm_mode_never_dispatches(self):
+        """CONFIRM 模式只准备订单，不经确认不会到达交易所。"""
+        bridge = LiveTradeBridge(exchange="binance", mode=ExecutionMode.CONFIRM)
+        result = bridge.submit_order(
+            "BTC/USDT", "buy", "market", 0.01, 50000.0,
+        )
+        assert result.status == OrderStatus.PENDING
+        assert "awaiting confirmation" in result.reason

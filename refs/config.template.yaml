@@ -1,0 +1,158 @@
+# =============================================================================
+# Web3QuantMaster — 配置模板 (config.template.yaml)
+# =============================================================================
+# 用途：src/core_lib/config.py 会按以下优先级读取配置：
+#
+#   1. 环境变量 (最高优先级)  —— 例如 W3QM_EXCHANGE / BINANCE_API_KEY /
+#                                 COINGECKO_API_KEY / DUNE_API_KEY / ...
+#   2. 本 YAML 文件           —— 仅当环境变量未设置时生效（覆盖模块默认值）
+#   3. 模块内默认值 (最低)    —— src/core_lib/config.py 中的常量
+#
+# 加载规则（见 config.py）：
+#   - 环境变量 W3QM_CONFIG 可指向自定义配置路径；否则默认读取 refs/config.template.yaml
+#   - 仅当安装 PyYAML 时才会解析本文件（import yaml 失败则静默跳过）
+#   - 所有密钥类配置（API key / secret）一律通过环境变量注入，禁止写入本文件
+#
+# 注意：本文件是「模板」，不包含任何真实密钥。复制为 config.yaml 后可本地修改，
+#       但 config.yaml 应加入 .gitignore 避免泄露。
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 交易所（实时行情 / 下单）
+# -----------------------------------------------------------------------------
+exchange:
+  default: binance                 # 对应环境变量 W3QM_EXCHANGE
+  binance:
+    api_key: ""                    # 环境变量 BINANCE_API_KEY
+    api_secret: ""                 # 环境变量 BINANCE_API_SECRET
+    base_url: "https://api.binance.com"
+    futures_url: "https://fapi.binance.com"
+    api_timeout: 15
+    rate_limit: 1200
+    max_klines: 1000
+    cache_ttl: 3600
+
+# -----------------------------------------------------------------------------
+# 行情 / 市场数据 API
+# -----------------------------------------------------------------------------
+market_data:
+  coingecko:
+    api_key: ""                    # 环境变量 COINGECKO_API_KEY
+    base_url: "https://api.coingecko.com/api/v3"
+  polymarket:
+    api_url: "https://gamma-api.polymarket.com"
+  alpha_vantage:
+    api_key: ""                    # 环境变量 ALPHA_VANTAGE_API_KEY
+  etherscan:
+    api_key: ""                    # 环境变量 ETHERSCAN_API_KEY
+
+# -----------------------------------------------------------------------------
+# 链上 / 情绪 API
+# -----------------------------------------------------------------------------
+onchain_sentiment:
+  glassnode:
+    api_key: ""                    # 环境变量 GLASSNODE_API_KEY
+  dune:
+    api_key: ""                    # 环境变量 DUNE_API_KEY
+  twitter:
+    bearer_token: ""               # 环境变量 TWITTER_BEARER_TOKEN
+
+# -----------------------------------------------------------------------------
+# 交易默认值
+# -----------------------------------------------------------------------------
+trading:
+  initial_balance: 10000.0
+  fee_rate: 0.001
+  slippage: 0.0005
+  default_stop_loss: 0.05
+  atr_stop_mult: 2.0
+  adx_filter_threshold: 25
+  default_slippage_pct: 0.005
+  slippage_model: "dynamic"
+  il_enabled: true
+  il_fee_share: 0.003
+  funding_rate_default: 0.0001
+  funding_interval_hours: 8
+  annualize_factor: 365
+  default_symbol: "BTCUSDT"
+  default_interval: "4h"
+  default_limit: 500
+  # K线间隔 → 每年周期数（用于回测年化）
+  periods_per_year:
+    "1m": 525600
+    "5m": 105120
+    "15m": 35040
+    "30m": 17520
+    "1h": 8760
+    "4h": 2190
+    "1d": 365
+    "1w": 52
+
+# -----------------------------------------------------------------------------
+# 指标配置
+# -----------------------------------------------------------------------------
+indicators:
+  sma_20: 20
+  sma_50: 50
+  sma_200: 200
+  ema_12: 12
+  ema_26: 26
+  rsi: 14
+  atr: 14
+  adx: 14
+  bollinger: 20
+  volume_sma: 20
+
+# -----------------------------------------------------------------------------
+# 风控配置
+# -----------------------------------------------------------------------------
+risk:
+  max_single_loss: 0.02
+  max_portfolio_loss: 0.10
+  var_confidence: 0.95
+  cvar_confidence: 0.975
+  kelly_fraction: 0.25
+  min_sharpe: 1.5
+  min_winrate: 0.52
+  min_cash_reserve: 0.05
+  max_crypto_exposure: 0.95
+  max_single_asset: 0.30
+  kelly_max_position: 0.25
+  sector:
+    defi:    { vol: "high",   liquidity: "medium" }
+    layer1:  { vol: "high",   liquidity: "high" }
+    meme:    { vol: "very_high", liquidity: "low" }
+
+# -----------------------------------------------------------------------------
+# 因子配置
+# -----------------------------------------------------------------------------
+factor:
+  momentum:        { window: 24, decay: 0.9 }
+  mean_reversion:  { window: 48, z_score_threshold: 2.0 }
+  volume:          { threshold: 1.5 }
+
+# -----------------------------------------------------------------------------
+# 策略配置
+# -----------------------------------------------------------------------------
+strategy:
+  score:
+    ma_cross: 75
+    triple_ema: 80
+    rsi_pullback: 70
+    keltner_breakout: 72
+    bollinger_breakout: 68
+  signal_weights:
+    ma_cross: 0.3
+    triple_ema: 0.25
+    rsi_pullback: 0.2
+    keltner_breakout: 0.15
+    bollinger_breakout: 0.1
+
+# -----------------------------------------------------------------------------
+# 实盘交易安全开关
+# -----------------------------------------------------------------------------
+# 本技能默认「只读 / 不下单」。LIVE 实盘模式由环境变量 WQM_ALLOW_LIVE 控制：
+#   未设置或 != "1"  → LIVE 下单被硬拒绝（默认安全）
+#   设为 "1"         → 允许真实资金下单（需谨慎，配合真实 API key）
+live_trade:
+  allow_live: false                # 仅作文档；真正开关是环境变量 WQM_ALLOW_LIVE

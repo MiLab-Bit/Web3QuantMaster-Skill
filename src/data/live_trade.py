@@ -35,6 +35,7 @@ Dependencies:
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -46,6 +47,15 @@ import numpy as np
 from core_lib.config import INITIAL_BALANCE, FEE_RATE, DEFAULT_STOP_LOSS
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# LIVE-mode safety gate (HANDOFF §6 decision point, recommended option b)
+# ---------------------------------------------------------------------------
+# This skill is positioned as read-only / no real orders by default. LIVE
+# execution is therefore HARD-DISABLED unless the operator explicitly opts in
+# via the WQM_ALLOW_LIVE environment variable. SIM and CONFIRM modes are
+# unaffected. This prevents accidental real-money dispatch.
+ALLOW_LIVE = os.environ.get("WQM_ALLOW_LIVE", "0") == "1"
 
 # ---------------------------------------------------------------------------
 # Optional ccxt import
@@ -812,6 +822,12 @@ class LiveTradeBridge:
 
     def _execute_live(self, request: OrderRequest) -> OrderResult:
         """Execute order on the real exchange via CCXT."""
+        if not ALLOW_LIVE:
+            return OrderResult.reject(
+                "LIVE mode is disabled by default (read-only skill). "
+                "Set WQM_ALLOW_LIVE=1 to enable real-money execution.",
+                request.symbol,
+            )
         if not self._client or not self._connected:
             return OrderResult.reject("Not connected to exchange", request.symbol)
 
