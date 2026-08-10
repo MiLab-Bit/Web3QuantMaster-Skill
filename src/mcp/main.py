@@ -672,6 +672,19 @@ TOOL_REGISTRY = [
         },
         lambda **kw: _call_handler("search_knowledge", **kw),
     ),
+    (
+        "semantic_search",
+        "本地语义+关键词混合检索知识库（refs/ 下 Markdown，离线、无需 API）",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "检索问题/关键词"},
+                "limit": {"type": "integer", "default": 10},
+            },
+            "required": ["query"],
+        },
+        lambda **kw: _call_handler("semantic_search", **kw),
+    ),
 ]
 
 
@@ -754,7 +767,7 @@ TOOL_GROUPS: Dict[str, str] = {
     "dune_preset_query": "数据查询", "web_search": "数据查询",
     "web_extract": "数据查询", "web_crawl": "数据查询",
     "narrative_scan": "数据查询", "narrative_tracking": "数据查询",
-    "search_knowledge": "数据查询",
+    "search_knowledge": "数据查询", "semantic_search": "数据查询",
 }
 
 

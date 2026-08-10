@@ -21,9 +21,9 @@ if sys.platform == 'win32':
         pass
 import math
 
-REFERENCES_DIR = Path(__file__).parent.parent.parent / "references"
+REFERENCES_DIR = Path(__file__).parent.parent.parent / "refs"
 if not REFERENCES_DIR.exists():
-    REFERENCES_DIR = Path(__file__).parent.parent / "references"
+    REFERENCES_DIR = Path(__file__).parent.parent / "refs"
 
 
 def load_documents():
@@ -51,13 +51,13 @@ def tokenize(text):
 def compute_idf(documents):
     """计算 IDF（逆文档频率）"""
     N = len(documents)
+    df = Counter()
 
-    
     for doc in documents:
         tokens = set(tokenize(doc["content"]))
         for token in tokens:
             df[token] += 1
-    
+
     idf = {}
     for token, df_val in df.items():
         idf[token] = math.log(N / (df_val + 1))
@@ -99,6 +99,7 @@ def keyword_match(query, documents):
         if score > 0:
             results.append({
                 "doc": doc,
+                "score": score,
                 "keyword_score": score,
                 "exact_count": exact_count,
                 "word_count": word_count,

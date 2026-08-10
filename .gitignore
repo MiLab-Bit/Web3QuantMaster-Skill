@@ -5,6 +5,7 @@ __pycache__/
 # Data runtime artifacts
 *.db
 data/_internal/
+data/_chroma_index/
 
 # JSON except meta/manifest
 *.json

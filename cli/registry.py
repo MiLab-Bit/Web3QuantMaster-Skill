@@ -175,7 +175,36 @@ COMMANDS: Dict[str, Dict[str, Any]] = {
         "usage": "data-quality <data.csv>",
         "examples": ["py main.py data-quality BTC_4h.csv"],
     },
-    
+    "data-pipeline": {
+        "module": "data.pipeline",
+        "help": "统一数据管线 (fetch→质检→因子生成，单例 prepare_data)",
+        "usage": "data-pipeline <symbol> [--interval 4h] [--lookback 90]",
+        "examples": ["py main.py data-pipeline BTCUSDT --interval 4h"],
+    },
+    "live-trade": {
+        "module": "data.live_trade",
+        "help": "实盘交易桥 (默认 SIM 纯模拟；CONFIRM/LIVE 需显式开启并配置密钥)",
+        "usage": "live-trade <status|balance|open|close> [--mode sim]",
+        "examples": [
+            "py main.py live-trade status --mode sim",
+            "py main.py live-trade open BTCUSDT long 67000 0.1 --mode sim",
+        ],
+    },
+
+    # ── 知识库构建脚本 ──
+    "build-semantic-index": {
+        "module": "build_semantic_index",
+        "help": "构建本地语义索引 (refs/ → data/_chroma_index/vectors.db)",
+        "usage": "build-semantic-index [--rebuild]",
+        "examples": ["py main.py build-semantic-index --rebuild"],
+    },
+    "build-knowledge-graph": {
+        "module": "build_knowledge_graph",
+        "help": "由 refs/ 知识库生成知识图谱 (json/md/html)",
+        "usage": "build-knowledge-graph",
+        "examples": ["py main.py build-knowledge-graph"],
+    },
+
     # ── MCP server ──
     "mcp-server": {
         "module": "mcp.main",

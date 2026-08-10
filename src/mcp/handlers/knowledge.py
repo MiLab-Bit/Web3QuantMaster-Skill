@@ -279,10 +279,40 @@ def factor_analysis(
         return {"status": "error", "error": str(e)}
 
 
+# ── Local Semantic / Hybrid Search (离线知识库) ─────────────────────────
+# 复用仓库 refs/ 下的本地知识库：rag_lookup 做关键词(BM25)召回，
+# semantic_search.hybrid_search 做语义(TF-IDF)加权融合，无需外部模型/API。
+
+def semantic_search(query: str, limit: int = 10) -> Dict[str, Any]:
+    """本地语义+关键词混合检索知识库（refs/ 下的 Markdown 文档）。
+
+    调用链：rag_lookup.rag_lookup(query) → semantic_search.hybrid_search(...)
+            → format_semantic_results(...)。无需联网、无需 embedding 模型。
+    若尚未构建语义索引（data/_chroma_index/vectors.db），语义分退化为纯关键词召回。
+    """
+    try:
+        from core_lib.rag_lookup import rag_lookup
+        from core_lib.semantic_search import hybrid_search, format_semantic_results
+
+        kw_results = rag_lookup(query, top_k=limit)
+        ranked = hybrid_search(query, kw_results, top_k=limit)
+        text = format_semantic_results(ranked, query)
+        return {
+            "status": "ok",
+            "query": query,
+            "results": ranked,
+            "count": len(ranked),
+            "text": text,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # ── Handler Registry ───────────────────────────────────────────────────
 
 HANDLERS = {
     "search_knowledge": search_knowledge,
+    "semantic_search": semantic_search,
     "factor_analysis": factor_analysis,
     "dune_run_query": dune_run_query,
     "dune_get_result": dune_get_result,
