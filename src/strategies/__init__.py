@@ -1,1 +1,5 @@
-from .arbitrage import HANDLERS, TOOLS
+from .arbitrage import HANDLERS as ARB_HANDLERS, TOOLS as ARB_TOOLS
+from .narrative import HANDLERS as NAR_HANDLERS, TOOLS as NAR_TOOLS
+
+HANDLERS = {**ARB_HANDLERS, **NAR_HANDLERS}
+TOOLS = ARB_TOOLS + NAR_TOOLS
