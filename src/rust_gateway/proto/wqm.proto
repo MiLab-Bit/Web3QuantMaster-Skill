@@ -1,0 +1,22 @@
+syntax = "proto3";
+package wqm;
+
+message PriceRequest {
+  string symbol = 1;
+  repeated string fields = 2;
+}
+
+message PriceResponse {
+  string symbol = 1;
+  double price = 2;
+  double change_24h = 3;
+  int64 timestamp = 4;
+}
+
+message BatchRequest {
+  repeated PriceRequest requests = 1;
+}
+
+message BatchResponse {
+  repeated PriceResponse responses = 1;
+}

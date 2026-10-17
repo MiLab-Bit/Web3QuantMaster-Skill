@@ -1,0 +1,23 @@
+name = "wqm-edge"
+main = "src/edge_worker/worker.js"
+compatibility_date = "2024-01-01"
+
+# 缓存配置
+[vars]
+CACHE_TTL_PRICE = 30
+CACHE_TTL_DEFI = 300
+
+# 路由规则
+[[routes]]
+pattern = "api.wqm.dev/*"
+zone_name = "wqm.dev"
+
+# 缓存键规则
+[cache]
+rules = [
+  { pattern = "/api/v1/price/*", cache_ttl = 30 },
+  { pattern = "/api/v1/defi/*", cache_ttl = 300 },
+]
+
+# 部署命令
+# npx wrangler deploy
