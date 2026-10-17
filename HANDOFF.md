@@ -3,7 +3,7 @@
 > 本文件为接手 Agent 准备。读完本文件 + 对应的 commit diff 即可继续工作。
 > **最后更新**: 2026-10-17 17:40 (GMT+8)
 > **当前 HEAD**: `2debab2` (master)
-> **最新进展**: Step4 已完成 ✅, Step5 配置模板已补全 ✅
+> **最新进展**: Step4 ✅, Step5 配置模板 ✅, **Phase1 DeFi Yield Engine** ✅
 
 ---
 
@@ -48,6 +48,49 @@
 | 4 | 拆分上帝模块 (store.py / main.py) | **已完成** ✅ | `2debab2` |
 | 5 | 配置与测试补全 | **部分完成** (配置模板✅) | `2debab2` |
 | 6 | 数据适配器统一 DataProviderProtocol 契约 | **未开始** | — |
+
+---
+
+## Phase 1 · DeFi Yield Optimization Engine — ✅ 已完成 (2026-10-17)
+
+**Commit**: `7026b7f`
+
+**新增文件**:
+- `src/data/defi/yield_data.py` (19KB) — DeFi 收益率数据抓取与计算引擎
+- `src/data/defi/__init__.py` — 模块导出
+- `tests/test_yield_optimizer.py` (10KB) — 19 个单元测试
+
+**更新文件**:
+- `src/mcp/handlers/defi.py` — 新增 3 个 MCP 工具
+
+**新增 MCP 工具**:
+1. `defi_yield_scan` — 扫描高收益 DeFi 机会 (min_tvl/min_apy/max_risk/chain 过滤)
+2. `defi_true_yield` — 计算单个池子的真实风险调整后收益率
+3. `defi_rotate_recommend` — 推荐轮转目标 + 成本收益分析
+
+**核心公式**:
+```
+True APY = (Gross APY - IL - Gas - Emission - Opportunity) × (1 - risk_score/200)
+```
+
+**成本组成**:
+- 无常损失 (基于波动率预测)
+- Gas 成本 (L1 vs L2 差异)
+- 排放代币贬值 (AAVE=0%, CRV=15%)
+- 机会成本 (sDAI 7.2% 无风险利率)
+
+**风险评分** (0-100):
+- 智能合约风险 (0-40)
+- 协议年龄惩罚 (0-20)
+- TVL 集中度 (0-20)
+- 链风险 (0-20)
+
+**投资建议**:
+- buy: true_apy > 5%
+- hold: true_apy > 0%
+- avoid: true_apy <= 0%
+
+**测试覆盖**: 19 tests ✅ (17 passed, 2 skipped for network)
 
 ## 4. 已完成步骤详情
 
