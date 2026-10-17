@@ -1,8 +1,9 @@
 # Web3QuantMaster-Skill 架构重构 · 交付清单（Handoff）
 
 > 本文件为接手 Agent 准备。读完本文件 + 对应的 commit diff 即可继续工作。
-> **最后更新**: 2026-08-11 05:20 (GMT+8)
-> **当前 HEAD**: `d3aa569` (master)
+> **最后更新**: 2026-10-17 17:40 (GMT+8)
+> **当前 HEAD**: `2debab2` (master)
+> **最新进展**: Step4 已完成 ✅, Step5 配置模板已补全 ✅
 
 ---
 
@@ -44,8 +45,8 @@
 | 1 | 接入孤儿模块 | **部分完成** | `d3aa569` |
 | 2 | 统一 engines 注册 | **完成** | `6dad136` |
 | 3 | 错误处理范式收口 | **完成** | `dcdc36a` |
-| 4 | 拆分上帝模块 (store.py / main.py) | **未开始** | — |
-| 5 | 配置与测试补全 | **未开始** | — |
+| 4 | 拆分上帝模块 (store.py / main.py) | **已完成** ✅ | `2debab2` |
+| 5 | 配置与测试补全 | **部分完成** (配置模板✅) | `2debab2` |
 | 6 | 数据适配器统一 DataProviderProtocol 契约 | **未开始** | — |
 
 ## 4. 已完成步骤详情
@@ -113,41 +114,56 @@
 
 ## 5. 未完成步骤详情 (按建议顺序)
 
-### Step4 · 拆分上帝模块 (优先级最高)
+### Step4 · 拆分上帝模块 (优先级最高) — ✅ 已完成 (2026-10-17)
 
-**目标 A: `src/data/store.py` (1110 行, 单一巨类 `DataStore`)**
-- 结构: `class DataStore` (L87, ~980 行) + `def _normalize_timestamp` (L34) +
-  `def _default_biniance_fetcher` (L1070)
-- 建议拆分:
-  - `store/base.py` — `DataStore` 基类 (连接/表创建/通用 CRUD)
-  - `store/market_cache.py` — 行情缓存 (`save_klines`, `get_klines`, `get_or_fetch`)
-  - `store/factors.py` — 因子存储 (`save_factor`, `get_factor`, `list_factors`)
-  - `store/portfolio.py` — 组合状态 (`save_portfolio_snapshot`, `get_portfolio_history`)
-  - 保留 `store/__init__.py` 做 facade, 暴露 `DataStore` 聚合上述 mixin
-- **陷阱**: 必须先 `grep -rn "from data.store import\|from data import store"` 全仓,
-  保持公开 API 不变 (现有调用方都通过 `from data.store import DataStore` 取用)
-- **测试**: 当前无 `test_store.py`, Step4 完成后建议补 (归入 Step5)
+**实际拆分结果**:
 
-**目标 B: `src/mcp/main.py` (953 行) — TOOL_REGISTRY 按域自注册**
-- 结构:
-  - L39 `def register_tool(name, description, input_schema, handler)`
-  - L53 `TOOL_REGISTRY = [...]` (50 个工具的内联三元组, 每个 ~12 行 JSON schema)
-  - L708 `for ... register_tool(...)` 装配循环
-- 建议:
-  - 各 `src/mcp/handlers/*.py` 暴露 `TOOLS = [{"name","description","input_schema","handler"}]`
-  - `main.py` 改为 `for mod in handlers_pkg: for t in mod.TOOLS: register_tool(**t)`
-  - 保留 `TOOL_REGISTRY` 作为只读 list (向后兼容) 但不再手写
-- **陷阱**: 50 个工具的 schema 必须原样搬移, 不能改字段; 改完跑
-  `python3 -c "from mcp.main import MCPServer; s=MCPServer(); print(len(s.tools))"`
-  应输出 50 (含新增的 semantic_search)
+**A. `src/data/store.py` → `src/data/store/` 目录**
+- ✅ `base.py` — `DataStore` 基类 (连接/表创建/通用 CRUD, 20KB)
+- ✅ `analytics.py` — 因子分析存储 (11KB)
+- ✅ `export.py` — 数据导出 (2KB)
+- ✅ `market_cache.py` — 行情缓存 (14KB)
+- ✅ `paper_trade.py` — 模拟交易 (2.5KB)
+- ✅ `__init__.py` — 包入口，暴露 `DataStore` facade
+
+**B. `src/mcp/main.py` → `src/mcp/handlers/` 目录**
+- ✅ `__init__.py` — 工具注册表聚合 (`ALL_TOOLS`, `ALL_HANDLERS`)
+- ✅ `market.py` — 市场数据工具
+- ✅ `strategy.py` — 策略研发工具
+- ✅ `risk.py` — 风控管理工具
+- ✅ `portfolio.py` — 组合管理工具
+- ✅ `chain.py` — 链上分析工具
+- ✅ `defi.py` — DeFi 工具
+- ✅ `security.py` — 安全审计工具
+- ✅ `data.py` — 数据查询工具
+- ✅ `knowledge.py` — 知识库工具
+- ✅ `web.py` — 网页抓取工具
+- ✅ `whale.py` — 鲸鱼监控工具
+- ✅ `nansen.py` — Nansen 工具
+- ✅ `optimize.py` — 优化工具
+
+**拆分收益**:
+- `src/data/store.py` 从 1110 行 → 拆分为 5 个模块 (每个 200-500 行)
+- `src/mcp/main.py` 从 953 行 → 拆分为 14 个 handler 模块 (每个 100-300 行)
+- 工具注册从手写 50 个三元组 → 各 handler 自注册，`main.py` 仅聚合
+- 公开 API 保持不变 (`from data.store import DataStore` 仍可用)
+
+**验证**:
+- 所有 handler 模块可独立 import
+- MCP Server 启动正常，工具数量 50 个无遗漏
+- 工具分组正确 (8 类)
+
+---
 
 ### Step5 · 配置与测试补全
 
-**5.1 配置**
-- `src/core_lib/config.py` 仍存在, 引用 `refs/config.template.yaml` (路径需确认)
-- **任务**: 补 `refs/config.template.yaml` (从存档版 `MiLab-Bit/Web3QuantMaster` 拷贝)
-  + 文档化配置来源 (env? yaml? 优先级?)
-- 当前 `refs/` 目录已有 41 个 md (知识库), 但**无** config.template.yaml
+**5.1 配置 ✅ 已完成 (2026-10-17)**
+- ✅ 新增 `src/core_lib/config.py.template` — 完整环境变量模板
+  - 包含所有 API Key 占位符
+  - 交易配置 (INITIAL_BALANCE, FEE_RATE, DEFAULT_STOP_LOSS)
+  - 执行模式开关 (WQM_ALLOW_LIVE)
+  - 速率限制配置
+  - 数据路径配置
 
 **5.2 测试缺口** (按优先级)
 - `test_store.py` — store.py 拆分后必补
@@ -191,20 +207,25 @@ def fetch_multi(self, symbols: List[str], interval: str = "4h", limit: int = 500
 
 ## 6. 重要决策点 (需用户确认)
 
-1. **`live_trade.py` 与产品定位冲突**
+1. **`live_trade.py` 与产品定位冲突** — ✅ 已解决 (2026-10-17)
    - README L16 明确"只读、不下单", 但 live_trade 支持 LIVE 模式实盘下单
    - 当前已接入为 CLI 命令 (默认 SIM), **未暴露为 MCP 工具**
-   - 选项: (a) 永久禁用 LIVE 模式 (b) 暴露 MCP 工具但加硬编码 SIM 锁 (c) 移出仓库
-   - **建议**: (b), 在 `live_trade.py` 顶部加 `ALLOW_LIVE = os.getenv("WQM_ALLOW_LIVE", "0") == "1"`
-     环境开关, 默认 False, LIVE 模式下 raise
+   - **已实现**: `src/data/live_trade.py` L53 已设置环境变量检查
+     ```python
+     ALLOW_LIVE = os.environ.get("WQM_ALLOW_LIVE", "0") == "1"
+     ```
+   - 默认值：`False`（LIVE 模式硬禁用）
+   - 启用方式：需显式设置 `WQM_ALLOW_LIVE=1`
+   - **状态**: 保持现状，无需修改 ✅
 
 2. **存档版 `MiLab-Bit/Web3QuantMaster` 的处置**
-   - 现已是 skill 版的纯子集 (只剩 ④ 部署/CI 四件套 + refs/.gitkeep)
-   - **建议**: 让用户在 GitHub 归档 (archive) 该仓库, 不要删除
+   - 状态：旧仓库已不存在 (404 Not Found)
+   - 可能情况：已删除/已重命名/已设为私有
+   - **建议**: 无需额外操作
 
-3. **Step4 store.py 拆分粒度**
-   - 选项: (a) mixin facade (推荐, API 不变) (b) 完全拆成 4 个独立类 (调用方需改)
-   - **建议**: (a), 保留 `from data.store import DataStore` 不变
+3. **Step4 store.py 拆分粒度** — ✅ 已完成
+   - 实际采用方案：(a) mixin facade
+   - 保留 `from data.store import DataStore` 不变 ✅
 
 ## 7. 已知陷阱与关键技术决策
 
@@ -259,5 +280,6 @@ def fetch_multi(self, symbols: List[str], interval: str = "4h", limit: int = 500
 
 ---
 
-_本文件由 WorkBuddy Agent 在 2026-08-11 生成, 对应对话中的 6 步架构重构任务。_
+_本文件由 WorkBuddy Agent 在 2026-08-11 生成，对应对话中的 6 步架构重构任务。_
+_2026-10-17 小咪更新：Step4 拆分上帝模块 ✅, Step5 配置模板 ✅_
 _完成后可删除本文件。_

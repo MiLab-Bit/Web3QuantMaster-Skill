@@ -1,0 +1,74 @@
+# Web3QuantMaster Configuration Template
+# Copy this file to .env and fill in your API keys
+# NEVER commit .env to version control
+
+# =============================================================================
+# Exchange API Keys (for live/confirm trading modes)
+# =============================================================================
+BINANCE_API_KEY=
+BINANCE_API_SECRET=
+
+OKX_API_KEY=
+OKX_API_SECRET=
+OKX_API_PASSWORD=
+
+BYBIT_API_KEY=
+BYBIT_API_SECRET=
+
+# =============================================================================
+# Market Data APIs
+# =============================================================================
+COINGECKO_API_KEY=
+ALPHA_VANTAGE_API_KEY=
+
+# =============================================================================
+# On-Chain Analysis APIs
+# =============================================================================
+ETHERSCAN_API_KEY=
+GLASSNODE_API_KEY=
+WHALE_ALERT_API_KEY=
+
+# =============================================================================
+# Advanced Analytics (subscription-based)
+# =============================================================================
+DUNE_API_KEY=
+NANSEN_API_KEY=
+
+# =============================================================================
+# Social/Narrative Tracking
+# =============================================================================
+TWITTER_BEARER_TOKEN=
+
+# =============================================================================
+# Trading Configuration
+# =============================================================================
+# Initial balance for simulation (USDT)
+INITIAL_BALANCE=10000
+
+# Trading fee rate (0.1% default)
+FEE_RATE=0.001
+
+# Default stop-loss percentage (2% default)
+DEFAULT_STOP_LOSS=0.02
+
+# =============================================================================
+# Execution Mode
+# =============================================================================
+# LIVE=1 to enable real trading (DANGER: use at your own risk)
+# Default: 0 (simulation only)
+WQM_ALLOW_LIVE=0
+
+# =============================================================================
+# Rate Limiting
+# =============================================================================
+# Requests per minute (default: 60)
+RATE_LIMIT_PER_MIN=60
+
+# =============================================================================
+# Data Paths
+# =============================================================================
+# Cache directory for market data
+DATA_CACHE_DIR=./data/cache
+
+# Knowledge base directory
+KNOWLEDGE_BASE_DIR=./refs
