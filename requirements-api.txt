@@ -1,0 +1,17 @@
+# Web3QuantMaster API v5.0
+
+# Web 框架
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# 异步 HTTP
+aiohttp>=3.9.0
+
+# 缓存
+redis>=5.0.0
+
+# 序列化
+msgpack>=1.0.7
+
+# 可选：监控
+prometheus-client>=0.19.0
