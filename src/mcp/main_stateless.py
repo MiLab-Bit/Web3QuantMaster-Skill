@@ -12,6 +12,7 @@ import os
 import json
 from typing import Dict, List, Any, Optional, Tuple
 from functools import lru_cache
+import importlib
 
 # MCP Protocol constants
 JSONRPC_VERSION = "2.0"
