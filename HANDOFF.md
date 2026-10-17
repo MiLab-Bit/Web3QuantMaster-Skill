@@ -3,7 +3,7 @@
 > 本文件为接手 Agent 准备。读完本文件 + 对应的 commit diff 即可继续工作。
 > **最后更新**: 2026-10-17 17:40 (GMT+8)
 > **当前 HEAD**: `2debab2` (master)
-> **最新进展**: Step4 ✅, Step5 配置模板 ✅, **Phase1 DeFi Yield Engine** ✅
+> **最新进展**: Step4 ✅, Step5 配置模板 ✅, **Phase1 DeFi Yield** ✅, **Phase2 ML (Sentiment+RL)** ✅
 
 ---
 
@@ -50,6 +50,63 @@
 | 6 | 数据适配器统一 DataProviderProtocol 契约 | **未开始** | — |
 
 ---
+
+## Phase 2 · Machine Learning Enhancements — ✅ 已完成 (2026-10-17)
+## Phase 2 · Machine Learning Enhancements — ✅ 已完成 (2026-10-17)
+
+**Commit**: `eb58125`
+
+**新增文件**:
+- `src/core_lib/sentiment/analyzer.py` (13KB) — 加密货币情绪分析器
+- `src/mcp/handlers/sentiment.py` (7KB) — 情绪分析 MCP handlers
+- `src/engines/rl/agent.py` (16KB) — Q-Learning 交易代理
+- `src/engines/rl/__init__.py` — RL 模块导出
+- `tests/test_ml_enhancements.py` (7KB) — 情绪分析测试 (7 tests ✅)
+- `tests/test_rl_agent.py` (3KB) — RL 代理测试 (需 numpy)
+
+**新增 MCP 工具**:
+1. `sentiment_word` — 单条文本情绪分析 (推文/新闻/Reddit)
+2. `sentiment_bulk` — 批量情绪分析 + 趋势检测
+3. `fear_greed_index` — 恐惧贪婪指数 (0-100)
+4. `rl_train_agent` — 训练 Q-Learning 交易代理 (需 numpy)
+5. `rl_predict` — 使用训练好的代理预测动作 (需 numpy)
+
+**情绪分析核心功能**:
+- VADER 风格加密词典 (HODL/FUD/FOMO/moon 等)
+- 否定词处理 ("not great" → 情绪反转)
+- 强化词支持 ("extremely bullish" → ×1.5)
+- 批量分析 + 趋势检测 (improving/stable/worsening)
+- 恐惧贪婪指数 = 情绪分×50% + 波动率×50%
+
+**RL 代理核心功能**:
+- 状态空间：momentum_5/10, volume_change, volatility, RSI, MACD, position
+- 动作空间：0=hold, 1=buy, 2=sell, 3=stop_loss_take_profit
+- ε-greedy 策略 (ε 从 1.0 衰减到 0.01)
+- 奖励函数：return + sharpe×0.1 - cost - drawdown²
+- Q-Table 持久化 (JSON save/load)
+
+**测试覆盖**:
+- Sentiment: 7 tests ✅ (100% pass, 纯 Python 无依赖)
+- RL: 5 tests (需要 numpy, 可选功能)
+
+**依赖**:
+- 情绪分析：纯 Python (无外部依赖)
+- RL 训练：`pip install numpy` (可选)
+
+**使用示例**:
+```python
+# 情绪分析 (无依赖)
+from core_lib.sentiment import CryptoSentimentAnalyzer
+analyzer = CryptoSentimentAnalyzer()
+result = analyzer.calculate_sentiment("bitcoin bullish to moon")
+# => {compound: 0.7, positive: 0.4, negative: 0.1, neutral: 0.5}
+
+# RL 代理 (需 numpy)
+from engines.rl.agent import QLearningAgent
+agent = QLearningAgent({"learning_rate": 0.1})
+agent.train(env, num_episodes=1000)
+agent.save("q_table.json")
+```
 
 ## Phase 1 · DeFi Yield Optimization Engine — ✅ 已完成 (2026-10-17)
 
