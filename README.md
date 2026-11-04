@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-3.5.0-blue" alt="version">
   <img src="https://img.shields.io/badge/MCP-49%20个工具-blue" alt="mcp">
-  <img src="https://img.shields.io/badge/测试-361%20通过-green" alt="tests">
+  <!-- Test status is reported by GitHub Actions, not a hard-coded pass count. -->
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
 </p>
 

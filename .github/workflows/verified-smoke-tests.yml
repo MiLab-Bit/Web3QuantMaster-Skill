@@ -1,0 +1,32 @@
+name: verified-smoke-tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install runtime and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - name: Compile Python sources
+        run: python -m compileall -q src tests main.py
+      - name: Run safety and core regression tests (no synthetic pass)
+        env:
+          PYTHONPATH: .:src
+        run: python -m pytest -q -o addopts='' --maxfail=1 tests/test_trade_safety.py tests/test_core.py tests/test_integration.py tests/test_backtest_edge.py tests/test_data_quality.py tests/test_data_providers.py

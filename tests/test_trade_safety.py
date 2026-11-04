@@ -274,3 +274,36 @@ class TestEmergencyStop:
         # Force a daily loss that's under the threshold
         result = stop.check(9600.0)  # 4% loss (under 5% limit)
         assert result is False  # Not stopped yet
+
+@pytest.mark.parametrize("override", [
+    {"amount": float("nan")},
+    {"amount": float("inf")},
+    {"amount": -1},
+    {"price": float("nan")},
+    {"price": float("inf")},
+    {"leverage": float("nan")},
+    {"leverage": -1},
+    {"estimated_price": float("inf")},
+    {"side": "transfer"},
+    {"type": "unknown"},
+])
+def test_invalid_order_cannot_pass_safety_checks(override):
+    validator = OrderValidator()
+    order = {
+        "symbol": "BTCUSDT", "side": "buy", "type": "limit",
+        "amount": 0.01, "price": 50000.0, "leverage": 1.0,
+    }
+    order.update(override)
+    result = validator.validate(order, 100000.0)
+    assert result.is_valid is False
+    assert result.checks_failed
+
+
+@pytest.mark.parametrize("balance", [0, -1, float("nan"), float("inf")])
+def test_invalid_account_balance_rejected(balance):
+    validator = OrderValidator()
+    order = {"symbol": "BTCUSDT", "side": "buy", "type": "limit",
+             "amount": 0.01, "price": 50000.0}
+    result = validator.validate(order, balance)
+    assert result.is_valid is False
+    assert "invalid_numeric" in result.checks_failed
