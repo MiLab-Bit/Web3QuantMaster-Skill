@@ -146,15 +146,37 @@ class TestOrderValidator:
         valid_order["type"] = "market"
         valid_order["estimated_price"] = 50000.0
         result = validator.validate(valid_order, 100000.0)
-        # Should pass since we skip slippage check without orderbook
-        assert "slippage_ok" in result.checks_passed
+        # An unknown orderbook is not evidence that slippage is safe.
+        assert "slippage_unverified" in result.checks_passed
 
     def test_slippage_estimate_with_flat_orderbook(self, validator, valid_order):
         """Flat orderbook (no entries) → default 0.5% slippage → pass."""
         valid_order["type"] = "market"
         valid_order["estimated_price"] = 50000.0
         result = validator.validate(valid_order, 100000.0, orderbook={"asks": [], "bids": []})
-        assert "slippage" not in result.checks_failed
+        assert result.is_valid is False
+        assert "orderbook_depth" in result.checks_failed
+
+    def test_insufficient_market_depth_rejected(self, validator, valid_order):
+        valid_order["type"] = "market"
+        valid_order["estimated_price"] = 50000.0
+        result = validator.validate(valid_order, 100000.0, orderbook={
+            "asks": [[50000.0, 0.001]], "bids": [[49990.0, 1.0]]
+        })
+        assert result.is_valid is False
+        assert "orderbook_depth" in result.checks_failed
+
+    @pytest.mark.parametrize("levels", [
+        [[0.0, 1.0]], [[float("nan"), 1.0]],
+        [[50000.0, -1.0]], [[50000.0, 0.0]],
+        [["bad", 1.0]], [[50000.0]], [[50000.0, float("inf")]],
+    ])
+    def test_invalid_market_depth_rejected(self, validator, valid_order, levels):
+        valid_order["type"] = "market"
+        valid_order["estimated_price"] = 50000.0
+        result = validator.validate(valid_order, 100000.0, orderbook={"asks": levels})
+        assert result.is_valid is False
+        assert "orderbook_depth" in result.checks_failed
 
     def test_slippage_estimate_with_small_spread(self, validator, valid_order):
         """Orderbook with small spread should pass slippage check."""
