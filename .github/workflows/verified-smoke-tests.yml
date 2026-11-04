@@ -29,4 +29,4 @@ jobs:
       - name: Run safety and core regression tests (no synthetic pass)
         env:
           PYTHONPATH: .:src
-        run: python -m pytest -q -o addopts='' --maxfail=1 tests/test_trade_safety.py tests/test_core.py
+        run: python -m pytest -q -o addopts='' --maxfail=1 tests/test_trade_safety.py tests/test_core.py tests/test_integration.py tests/test_backtest_edge.py tests/test_data_quality.py tests/test_data_providers.py
