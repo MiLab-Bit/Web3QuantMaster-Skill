@@ -164,16 +164,22 @@ class OrderValidator:
         checks_passed.append("concentration_ok")
 
         # ── Check 4: Slippage (market orders only) ──
-        if order_type == "market" and orderbook:
-            est_slippage = self._estimate_slippage(order_value, orderbook, side)
-            if est_slippage > self.max_slippage_pct:
-                checks_failed.append("slippage")
-                return OrderValidation(
-                    False,
-                    f"Estimated slippage {est_slippage:.2%} exceeds max {self.max_slippage_pct:.2%}",
-                    checks_passed, checks_failed,
-                )
-        checks_passed.append("slippage_ok")
+        if order_type == "market":
+            if orderbook is None:
+                # No liquidity observation: never claim slippage was verified.
+                checks_passed.append("slippage_unverified")
+            else:
+                try:
+                    est_slippage = self._estimate_slippage(order_value, orderbook, side)
+                except (TypeError, ValueError, IndexError, ZeroDivisionError, OverflowError):
+                    return OrderValidation(False, "Invalid or insufficient orderbook depth",
+                                           checks_passed, ["orderbook_depth"])
+                if not math.isfinite(est_slippage) or est_slippage > self.max_slippage_pct:
+                    return OrderValidation(False, "Market order slippage exceeds limit",
+                                           checks_passed, ["slippage"])
+                checks_passed.append("slippage_ok")
+        else:
+            checks_passed.append("slippage_not_applicable")
 
         # ── Check 5: Leverage ──
         if leverage > self.max_leverage:
@@ -190,17 +196,22 @@ class OrderValidator:
         self, order_value: float, orderbook: Dict, side: str
     ) -> float:
         """Estimate slippage from order book depth."""
-        entries = orderbook.get("asks" if side.lower() == "buy" else "bids", [])
-        if not entries:
-            return 0.005  # default 0.5% if no orderbook
+        entries = orderbook["asks" if side.lower() == "buy" else "bids"]
+        if not isinstance(entries, (list, tuple)) or not entries:
+            raise ValueError("missing market depth")
 
         filled_usd = 0.0
         qty_filled = 0.0
-        best_price = entries[0][0] if entries else 0
-        if best_price <= 0:
-            return 0.005
+        best_price = float(entries[0][0])
+        if not math.isfinite(best_price) or best_price <= 0:
+            raise ValueError("invalid best price")
 
-        for price_level, size in entries:
+        for level in entries:
+            if len(level) != 2:
+                raise ValueError("malformed depth level")
+            price_level, size = map(float, level)
+            if not math.isfinite(price_level) or not math.isfinite(size) or price_level <= 0 or size <= 0:
+                raise ValueError("invalid depth level")
             remaining = order_value - filled_usd
             if remaining <= 0:
                 break
@@ -208,8 +219,9 @@ class OrderValidator:
             filled_usd += fill_qty * price_level
             qty_filled += fill_qty
 
-        if filled_usd <= 0 or qty_filled <= 0:
-            return 0.0
+        # Partial fills must never be rated as safe based on the liquid fraction.
+        if filled_usd < order_value * (1 - 1e-10) or qty_filled <= 0:
+            raise ValueError("insufficient executable depth")
 
         avg_price = filled_usd / qty_filled
         return abs(avg_price - best_price) / best_price
