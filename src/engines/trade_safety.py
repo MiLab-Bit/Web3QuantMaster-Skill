@@ -11,6 +11,7 @@ Key features:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -95,16 +96,33 @@ class OrderValidator:
         symbol = order.get("symbol", "UNKNOWN")
         side = order.get("side", "buy")
         order_type = order.get("type", "market")
-        amount = float(order.get("amount", 0))
-        price = float(order.get("price", 0))
+        if not isinstance(side, str) or side.lower() not in ("buy", "sell"):
+            return OrderValidation(False, "Unsupported order side", checks_failed=["invalid_side"])
+        if order_type not in ("limit", "market"):
+            return OrderValidation(False, "Unsupported order type", checks_failed=["invalid_type"])
+        try:
+            amount = float(order.get("amount", 0))
+            price = float(order.get("price", 0) or 0)
+            estimated_price = float(order.get("estimated_price", 0) or 0)
+            leverage = float(order.get("leverage", 1.0))
+            account_balance = float(account_balance)
+        except (TypeError, ValueError, OverflowError):
+            return OrderValidation(False, "Non-numeric order parameters", checks_failed=["invalid_numeric"])
+        if not all(map(math.isfinite, (amount, price, estimated_price, leverage, account_balance))):
+            return OrderValidation(False, "Non-finite order parameters", checks_failed=["invalid_numeric"])
+        if amount <= 0 or price < 0 or estimated_price < 0 or leverage <= 0 or account_balance <= 0:
+            return OrderValidation(False, "Non-positive order parameters or balance", checks_failed=["invalid_numeric"])
 
         # Derive order value
         if price > 0:
             order_value = amount * price
         elif order_type == "market":
-            order_value = amount * (order.get("estimated_price", 0) or 0)
+            order_value = amount * estimated_price
         else:
             return OrderValidation(False, f"Missing price for {order_type} order")
+
+        if not math.isfinite(order_value):
+            return OrderValidation(False, "Non-finite order value", checks_failed=["invalid_numeric"])
 
         # ── Check 1: Dust order ──
         if order_value < self.min_order_value_usd:
@@ -158,7 +176,6 @@ class OrderValidator:
         checks_passed.append("slippage_ok")
 
         # ── Check 5: Leverage ──
-        leverage = order.get("leverage", 1.0)
         if leverage > self.max_leverage:
             checks_failed.append("leverage")
             return OrderValidation(
